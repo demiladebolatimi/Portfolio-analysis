@@ -15,9 +15,100 @@ from portfolio_manager import (
 from strategies import run_qlearner_strategy, run_randomforest_strategy
 from email_service import send_email_report
 from technical_indicators import (
-    calculate_rsi, calculate_momentum, calculate_macd,
-    calculate_daily_sell_scores, calculate_daily_buy_scores
+    calculate_rsi, calculate_momentum, calculate_macd
 )
+
+
+def calculate_daily_sell_scores(prices):
+    """Calculate daily sell likelihood scores (0-100) based on indicators."""
+    if prices is None or len(prices) < 30:
+        return None
+    
+    # Calculate indicators
+    rsi_values = calculate_rsi(prices, window=14)
+    mom_values = calculate_momentum(prices, window=14)
+    macd_values = calculate_macd(prices)
+    
+    daily_scores = pd.Series(index=prices.index, dtype=float)
+    
+    for i in range(len(prices)):
+        try:
+            if i < 14:  # Need enough data for indicators
+                daily_scores.iloc[i] = 50  # Neutral
+                continue
+                
+            rsi_val = rsi_values.iloc[i] if i < len(rsi_values) else None
+            mom_val = mom_values.iloc[i] if i < len(mom_values) else None
+            macd_val = macd_values.iloc[i] if i < len(macd_values) else None
+            
+            if pd.isna(rsi_val) or pd.isna(mom_val) or pd.isna(macd_val):
+                daily_scores.iloc[i] = 50
+                continue
+            
+            # Calculate individual sell signals (0-100 scale)
+            # RSI: >70 = high sell score, <30 = low sell score
+            rsi_score = min(100, max(0, (rsi_val - 30) / 40 * 100))  # 30->0%, 70->100%
+            
+            # Momentum: positive = lower sell score, negative = higher sell score
+            mom_score = min(100, max(0, (0.05 - mom_val) / 0.10 * 100))  # +5% -> 0%, -5% -> 100%
+            
+            # MACD: positive = lower sell score, negative = higher sell score
+            macd_score = min(100, max(0, (0 - macd_val) / 2 * 100))  # +2 -> 0%, -2 -> 100%
+            
+            # Combined score (weighted average)
+            combined_score = (rsi_score * 0.4 + mom_score * 0.3 + macd_score * 0.3)
+            daily_scores.iloc[i] = combined_score
+            
+        except Exception:
+            daily_scores.iloc[i] = 50
+    
+    return daily_scores
+
+
+def calculate_daily_buy_scores(prices):
+    """Calculate daily buy likelihood scores (0-100) based on indicators."""
+    if prices is None or len(prices) < 30:
+        return None
+    
+    # Calculate indicators
+    rsi_values = calculate_rsi(prices, window=14)
+    mom_values = calculate_momentum(prices, window=14)
+    macd_values = calculate_macd(prices)
+    
+    daily_scores = pd.Series(index=prices.index, dtype=float)
+    
+    for i in range(len(prices)):
+        try:
+            if i < 14:  # Need enough data for indicators
+                daily_scores.iloc[i] = 50  # Neutral
+                continue
+                
+            rsi_val = rsi_values.iloc[i] if i < len(rsi_values) else None
+            mom_val = mom_values.iloc[i] if i < len(mom_values) else None
+            macd_val = macd_values.iloc[i] if i < len(macd_values) else None
+            
+            if pd.isna(rsi_val) or pd.isna(mom_val) or pd.isna(macd_val):
+                daily_scores.iloc[i] = 50
+                continue
+            
+            # Calculate individual buy signals (0-100 scale)
+            # RSI: <30 = high buy score, >70 = low buy score
+            rsi_score = min(100, max(0, (70 - rsi_val) / 40 * 100))  # 70->0%, 30->100%
+            
+            # Momentum: positive = higher buy score, negative = lower buy score
+            mom_score = min(100, max(0, (mom_val + 0.05) / 0.10 * 100))  # -5% -> 0%, +5% -> 100%
+            
+            # MACD: positive = higher buy score, negative = lower buy score
+            macd_score = min(100, max(0, (macd_val + 2) / 4 * 100))  # -2 -> 0%, +2 -> 100%
+            
+            # Combined score (weighted average)
+            combined_score = (rsi_score * 0.4 + mom_score * 0.3 + macd_score * 0.3)
+            daily_scores.iloc[i] = combined_score
+            
+        except Exception:
+            daily_scores.iloc[i] = 50
+    
+    return daily_scores
 
 
 def calculate_actual_performance(portfolio, trades_dict):
