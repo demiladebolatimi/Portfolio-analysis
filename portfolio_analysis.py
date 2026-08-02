@@ -1507,8 +1507,8 @@ def analyze_portfolio(csv_path, analysis_months=6):
     print("\n" + "=" * 60)
     print("SUMMARY RESULTS - LAST 2 MONTHS PERFORMANCE")
     print("=" * 60)
-    # Print summary with sell and buy scores
-    summary_cols = ['Symbol', 'Shares', 'BuyHold', 'Benchmark', 'Manual', 'QLearner', 'RandomForest', 'CurrentSellScore', 'CurrentBuyScore']
+    # Print summary with sell and buy scores (without shares for privacy)
+    summary_cols = ['Symbol', 'BuyHold', 'Benchmark', 'Manual', 'QLearner', 'RandomForest', 'CurrentSellScore', 'CurrentBuyScore']
     print(results_df[summary_cols].to_string(index=False))
     
     # Plot comparison
@@ -2069,12 +2069,11 @@ def print_predictions(results_df, restrictions_df=None):
     print("=" * 140)
     
     # Format the recommendations table
-    print(f"{'Symbol':<10} {'Shares':<10} {'Buy Score':<12} {'Sell Score':<12} {'Manual':<12} {'Q-Learner':<12} {'RandomForest':<12} {'Final Rec':<15} {'Restriction':<20}")
-    print("-" * 140)
+    print(f"{'Symbol':<10} {'Buy Score':<12} {'Sell Score':<12} {'Manual':<12} {'Q-Learner':<12} {'RandomForest':<12} {'Final Rec':<15} {'Restriction':<20}")
+    print("-" * 130)
     
     for idx, row in results_df.iterrows():
         symbol = row['Symbol']
-        shares = row['Shares']
         buy_score = row['CurrentBuyScore']
         sell_score = row['CurrentSellScore']
         
@@ -2133,7 +2132,7 @@ def print_predictions(results_df, restrictions_df=None):
                 restriction_status = "⚠️ VIOLATION"
                 print(f"⚠️ RESTRICTION WARNING for {symbol}: {message}")
         
-        print(f"{symbol:<10} {shares:<10.3f} {buy_score:>6.1f}/100   {sell_score:>6.1f}/100   {manual_rec:<12} {ql_rec:<12} {rf_rec:<12} {final_rec:<15} {restriction_status:<20}")
+        print(f"{symbol:<10} {buy_score:>6.1f}/100   {sell_score:>6.1f}/100   {manual_rec:<12} {ql_rec:<12} {rf_rec:<12} {final_rec:<15} {restriction_status:<20}")
     
     print("=" * 140)
     print("📊 HYBRID RECOMMENDATION LOGIC:")
