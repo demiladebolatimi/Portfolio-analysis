@@ -453,8 +453,8 @@ def analyze_portfolio(csv_path, analysis_months=None):
                 portfolio_value = compute_portfolio_value_from_trades(trades, prices)
                 if portfolio_value is not None and len(portfolio_value) > 0:
                     # Get first and last values as scalars
-                    first_value = portfolio_value.iloc[0]
-                    last_value = portfolio_value.iloc[-1]
+                    first_value = float(portfolio_value.iloc[0])
+                    last_value = float(portfolio_value.iloc[-1])
                     if first_value != 0:
                         manual_return = (last_value - first_value) / first_value
                     else:
@@ -470,8 +470,8 @@ def analyze_portfolio(csv_path, analysis_months=None):
                 ql_portfolio = compute_portfolio_value_from_trades(ql_trades, prices)
                 if ql_portfolio is not None and len(ql_portfolio) > 0:
                     # Get first and last values as scalars
-                    first_value = ql_portfolio.iloc[0]
-                    last_value = ql_portfolio.iloc[-1]
+                    first_value = float(ql_portfolio.iloc[0])
+                    last_value = float(ql_portfolio.iloc[-1])
                     if first_value != 0:
                         ql_return = (last_value - first_value) / first_value
                     else:
@@ -489,8 +489,8 @@ def analyze_portfolio(csv_path, analysis_months=None):
                     rf_portfolio = compute_portfolio_value_from_trades(rf_trades, prices)
                     if rf_portfolio is not None and len(rf_portfolio) > 0:
                         # Get first and last values as scalars
-                        first_value = rf_portfolio.iloc[0]
-                        last_value = rf_portfolio.iloc[-1]
+                        first_value = float(rf_portfolio.iloc[0])
+                        last_value = float(rf_portfolio.iloc[-1])
                         if first_value != 0:
                             rf_return = (last_value - first_value) / first_value
                         else:
