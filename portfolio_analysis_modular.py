@@ -451,8 +451,14 @@ def analyze_portfolio(csv_path, analysis_months=None):
                         trades.iloc[i] = -1000
                 
                 portfolio_value = compute_portfolio_value_from_trades(trades, prices)
-                if portfolio_value is not None:
-                    manual_return = (portfolio_value.iloc[-1] - portfolio_value.iloc[0]) / portfolio_value.iloc[0]
+                if portfolio_value is not None and len(portfolio_value) > 0:
+                    # Get first and last values as scalars
+                    first_value = portfolio_value.iloc[0]
+                    last_value = portfolio_value.iloc[-1]
+                    if first_value != 0:
+                        manual_return = (last_value - first_value) / first_value
+                    else:
+                        manual_return = 0
                     print(f"  Manual Strategy Return: {manual_return:.2%}")
             except Exception as e:
                 print(f"  Error in manual strategy: {e}")
@@ -462,8 +468,14 @@ def analyze_portfolio(csv_path, analysis_months=None):
             ql_return = None
             if ql_trades is not None:
                 ql_portfolio = compute_portfolio_value_from_trades(ql_trades, prices)
-                if ql_portfolio is not None:
-                    ql_return = (ql_portfolio.iloc[-1] - ql_portfolio.iloc[0]) / ql_portfolio.iloc[0]
+                if ql_portfolio is not None and len(ql_portfolio) > 0:
+                    # Get first and last values as scalars
+                    first_value = ql_portfolio.iloc[0]
+                    last_value = ql_portfolio.iloc[-1]
+                    if first_value != 0:
+                        ql_return = (last_value - first_value) / first_value
+                    else:
+                        ql_return = 0
                     print(f"  Q-Learner Strategy Return: {ql_return:.2%}")
             else:
                 ql_return = None
@@ -475,8 +487,14 @@ def analyze_portfolio(csv_path, analysis_months=None):
             if rf_trades is not None and rf_accuracy is not None:
                 if rf_accuracy > config.ACCURACY_THRESHOLD:
                     rf_portfolio = compute_portfolio_value_from_trades(rf_trades, prices)
-                    if rf_portfolio is not None:
-                        rf_return = (rf_portfolio.iloc[-1] - rf_portfolio.iloc[0]) / rf_portfolio.iloc[0]
+                    if rf_portfolio is not None and len(rf_portfolio) > 0:
+                        # Get first and last values as scalars
+                        first_value = rf_portfolio.iloc[0]
+                        last_value = rf_portfolio.iloc[-1]
+                        if first_value != 0:
+                            rf_return = (last_value - first_value) / first_value
+                        else:
+                            rf_return = 0
                         print(f"  Random Forest Strategy Return: {rf_return:.2%} (Accuracy: {rf_accuracy:.2%})")
                         rf_model_for_enhancement = rf_model
                     else:
