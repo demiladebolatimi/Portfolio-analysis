@@ -1,0 +1,21 @@
+# Environment variables
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Generated charts
+*.png
+*.jpg
+*.jpeg
+
+# Trading restrictions (contains sensitive trading data)
+trading_restrictions.csv
+
+# IDE
+.vscode/
+.idea/
