@@ -14,6 +14,7 @@ EMAIL_CONFIDENCE_THRESHOLD = 65  # Only send email if signals >65 or <35
 # Email settings
 EMAIL_SENDER = "demibotti2000@gmail.com"
 EMAIL_RECEIVER = "demibotti2000@gmail.com"
+EMAIL_CC = ["laetitiarakotoarisoa@gmail.com", "nifemibolatimi@gmail.com"]  # Additional recipients
 
 # Technical indicator windows
 RSI_WINDOW = 14
@@ -37,3 +38,38 @@ NEUTRAL_RANGE = (35, 65)
 
 # Trading restriction settings
 RESTRICTION_DAYS = 60  # 60-day trading restriction
+
+# Position sizing settings
+MAX_POSITION_SIZE = 0.10  # Maximum 10% of portfolio per position
+MIN_POSITION_SIZE = 0.01  # Minimum 1% of portfolio per position
+DEFAULT_POSITION_SIZE = 0.05  # Default 5% position size
+RISK_LEVELS = {
+    'conservative': 0.03,  # 3% position size
+    'moderate': 0.05,     # 5% position size
+    'aggressive': 0.08    # 8% position size
+}
+
+# Portfolio weight limits
+MAX_SINGLE_STOCK_WEIGHT = 0.15  # Maximum 15% in any single stock
+MAX_SECTOR_WEIGHT = 0.25  # Maximum 25% in any sector
+MIN_CASH_RESERVE = 0.10  # Keep at least 10% cash
+
+# Gradual entry/exit settings
+GRADUAL_ENTRY_ENABLED = True
+GRADUAL_EXIT_ENABLED = True
+ENTRY_CONFIDENCE_LEVELS = {
+    'low': (35, 45),      # Entry 25% of position
+    'medium': (45, 55),   # Entry 50% of position
+    'high': (55, 65),     # Entry 75% of position
+    'very_high': (65, 100) # Entry 100% of position
+}
+EXIT_CONFIDENCE_LEVELS = {
+    'low': (35, 45),      # Exit 25% of position
+    'medium': (45, 55),   # Exit 50% of position
+    'high': (55, 65),     # Exit 75% of position
+    'very_high': (65, 100) # Exit 100% of position
+}
+
+# Portfolio management settings
+KEEP_SOLD_STOCKS = True  # Keep sold stocks with 0 shares for future analysis
+AUTO_UPDATE_PORTFOLIO = False  # Auto-update portfolio.csv (requires manual confirmation)

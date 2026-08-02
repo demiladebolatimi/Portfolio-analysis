@@ -235,6 +235,7 @@ def send_email_report(results_df, subject="Portfolio Analysis Report"):
         chart_files = [
             'portfolio_comparison.png',
             'sell_likelihood_tracking.png', 
+            'sell_likelihood_buckets.png',
             'sell_likelihood_heatmap.png',
             'buy_likelihood_heatmap.png'
         ]
@@ -1497,7 +1498,8 @@ def analyze_portfolio(csv_path, analysis_months=6):
             'AvgSellScore': avg_sell_score,
             'CurrentSellScore': recent_sell_score,
             'AvgBuyScore': avg_buy_score,
-            'CurrentBuyScore': recent_buy_score
+            'CurrentBuyScore': recent_buy_score,
+            'MarketValue': row['MarketValue']
         })
     
     # Create results DataFrame
@@ -1516,6 +1518,7 @@ def analyze_portfolio(csv_path, analysis_months=6):
     # Plot daily sell likelihood tracking
     if daily_scores:
         plot_sell_likelihood_tracking(daily_scores)
+        plot_sell_likelihood_buckets(daily_scores)
     
     # Plot sell likelihood heatmap
     if len(results_df) > 0:
@@ -1628,6 +1631,88 @@ def plot_sell_likelihood_tracking(daily_scores):
     plt.tight_layout()
     plt.savefig('sell_likelihood_tracking.png', dpi=150, bbox_inches='tight')
     print("Sell likelihood tracking chart saved as sell_likelihood_tracking.png")
+    plt.close()
+
+def plot_sell_likelihood_buckets(daily_scores):
+    """Create simplified chart showing stocks in three buckets: High Sell, Hold, Buy."""
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Categorize each stock based on its latest sell score
+    high_sell = []
+    hold = []
+    buy = []
+    
+    for symbol, scores in daily_scores.items():
+        if scores is not None and len(scores) > 0:
+            latest_score = scores.iloc[-1]
+            if latest_score > 70:
+                high_sell.append((symbol, latest_score))
+            elif latest_score < 30:
+                buy.append((symbol, latest_score))
+            else:
+                hold.append((symbol, latest_score))
+    
+    # Sort each bucket by score
+    high_sell.sort(key=lambda x: x[1], reverse=True)
+    hold.sort(key=lambda x: x[1], reverse=True)
+    buy.sort(key=lambda x: x[1], reverse=True)
+    
+    # Create horizontal bar chart
+    y_positions = []
+    labels = []
+    colors = []
+    
+    current_y = 0
+    
+    # High Sell bucket (red)
+    for symbol, score in high_sell:
+        y_positions.append(current_y)
+        labels.append(f"{symbol} ({score:.1f})")
+        colors.append('#ff4444')
+        current_y += 1
+    
+    # Hold bucket (gray)
+    for symbol, score in hold:
+        y_positions.append(current_y)
+        labels.append(f"{symbol} ({score:.1f})")
+        colors.append('#888888')
+        current_y += 1
+    
+    # Buy bucket (green)
+    for symbol, score in buy:
+        y_positions.append(current_y)
+        labels.append(f"{symbol} ({score:.1f})")
+        colors.append('#44cc44')
+        current_y += 1
+    
+    # Create horizontal bar chart
+    if y_positions:
+        ax.barh(y_positions, [score for _, score in high_sell + hold + buy], color=colors, alpha=0.7)
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels(labels)
+        ax.set_xlabel('Sell Likelihood Score (0-100)')
+        ax.set_title('Current Stock Status - Sell Likelihood Buckets')
+        
+        # Add vertical lines for thresholds
+        ax.axvline(x=70, color='red', linestyle='--', linewidth=1, alpha=0.5)
+        ax.axvline(x=30, color='green', linestyle='--', linewidth=1, alpha=0.5)
+        ax.axvline(x=50, color='gray', linestyle='-', linewidth=0.5, alpha=0.3)
+        
+        # Add legend
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor='#ff4444', label='High Sell (>70)'),
+            Patch(facecolor='#888888', label='Hold (30-70)'),
+            Patch(facecolor='#44cc44', label='Buy (<30)')
+        ]
+        ax.legend(handles=legend_elements, loc='upper right')
+        
+        ax.grid(True, alpha=0.3, axis='x')
+        ax.set_xlim([0, 100])
+    
+    plt.tight_layout()
+    plt.savefig('sell_likelihood_buckets.png', dpi=150, bbox_inches='tight')
+    print("Sell likelihood buckets chart saved as sell_likelihood_buckets.png")
     plt.close()
 
 def plot_sell_likelihood_heatmap(results_df):

@@ -2,6 +2,7 @@
 
 import pandas as pd
 from datetime import datetime, timedelta
+import config
 
 
 def load_portfolio(csv_path):
@@ -138,4 +139,71 @@ def get_historical_data(symbol, start_date, end_date):
         return hist
     except Exception as e:
         print(f"Error fetching data for {symbol}: {e}")
+        return None
+
+
+def update_portfolio_after_trade(symbol, new_shares, current_price, portfolio_path):
+    """Update portfolio.csv after executing a trade."""
+    try:
+        portfolio = load_portfolio(portfolio_path)
+        
+        if symbol in portfolio['Symbol'].values:
+            # Update existing position
+            if new_shares == 0:
+                # Keep stock with 0 shares for future analysis
+                portfolio.loc[portfolio['Symbol'] == symbol, 'Shares'] = 0
+                portfolio.loc[portfolio['Symbol'] == symbol, 'MarketValue'] = 0
+                portfolio.loc[portfolio['Symbol'] == symbol, 'PortfolioWeight'] = 0
+                print(f"✅ Updated {symbol} to 0 shares (kept for future analysis)")
+            else:
+                # Update with new shares
+                portfolio.loc[portfolio['Symbol'] == symbol, 'Shares'] = new_shares
+                new_market_value = new_shares * current_price
+                portfolio.loc[portfolio['Symbol'] == symbol, 'MarketValue'] = new_market_value
+                print(f"✅ Updated {symbol} to {new_shares} shares at ${current_price:.2f}")
+        else:
+            # Add new position
+            new_row = {
+                'Symbol': symbol,
+                'Shares': new_shares,
+                'PortfolioWeight': 0.0,  # Will be recalculated
+                'CostBasis': new_shares * current_price,
+                'MarketValue': new_shares * current_price
+            }
+            portfolio = pd.concat([portfolio, pd.DataFrame([new_row])], ignore_index=True)
+            print(f"✅ Added new position {symbol} with {new_shares} shares at ${current_price:.2f}")
+        
+        # Recalculate portfolio weights
+        total_value = portfolio['MarketValue'].sum()
+        if total_value > 0:
+            portfolio['PortfolioWeight'] = portfolio['MarketValue'] / total_value
+        
+        # Save updated portfolio
+        portfolio.to_csv(portfolio_path, index=False)
+        return portfolio
+        
+    except Exception as e:
+        print(f"❌ Error updating portfolio: {e}")
+        return None
+
+
+def maintain_sold_stocks(portfolio_path, symbols_to_keep=None):
+    """Ensure sold stocks remain in portfolio.csv for future analysis."""
+    try:
+        portfolio = load_portfolio(portfolio_path)
+        
+        if symbols_to_keep is None:
+            # Keep all stocks currently in portfolio
+            symbols_to_keep = portfolio['Symbol'].tolist()
+        
+        # If config says to keep sold stocks, ensure 0-share stocks remain
+        if config.KEEP_SOLD_STOCKS:
+            # This is a placeholder for future enhancement
+            # Currently, the system keeps all stocks in portfolio.csv
+            pass
+        
+        return portfolio
+        
+    except Exception as e:
+        print(f"❌ Error maintaining sold stocks: {e}")
         return None

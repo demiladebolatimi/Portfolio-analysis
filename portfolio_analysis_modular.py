@@ -10,13 +10,110 @@ import time
 import config
 from portfolio_manager import (
     load_portfolio, load_trading_restrictions, 
-    check_trading_restrictions, update_trading_restriction
+    check_trading_restrictions, update_trading_restriction,
+    update_portfolio_after_trade, maintain_sold_stocks
 )
 from strategies import run_qlearner_strategy, run_randomforest_strategy
 from email_service import send_email_report
 from technical_indicators import (
     calculate_rsi, calculate_momentum, calculate_macd
 )
+
+
+def calculate_position_size(current_shares, current_value, portfolio_value, buy_score, sell_score, risk_level='moderate'):
+    """Calculate recommended position size based on confidence and risk level."""
+    # Get base position size from risk level
+    base_position_size = config.RISK_LEVELS.get(risk_level, config.DEFAULT_POSITION_SIZE)
+    
+    # Adjust based on confidence levels
+    if buy_score > config.STRONG_BUY_THRESHOLD:
+        # Strong buy signal - increase position size
+        position_multiplier = 1.5
+    elif buy_score > config.BUY_SCORE_THRESHOLD:
+        # Moderate buy signal - standard position size
+        position_multiplier = 1.0
+    elif sell_score > config.STRONG_SELL_THRESHOLD:
+        # Strong sell signal - reduce position significantly
+        position_multiplier = 0.25
+    elif sell_score > config.SELL_SCORE_THRESHOLD:
+        # Moderate sell signal - reduce position
+        position_multiplier = 0.5
+    else:
+        # Neutral - maintain current position
+        position_multiplier = 1.0
+    
+    # Calculate target position value
+    target_position_value = portfolio_value * base_position_size * position_multiplier
+    
+    # Apply limits
+    target_position_value = min(target_position_value, portfolio_value * config.MAX_POSITION_SIZE)
+    target_position_value = max(target_position_value, portfolio_value * config.MIN_POSITION_SIZE)
+    
+    return target_position_value
+
+
+def calculate_trade_size(current_shares, current_value, portfolio_value, buy_score, sell_score, recommendation, risk_level='moderate'):
+    """Calculate recommended trade size (shares to buy/sell)."""
+    target_position_value = calculate_position_size(current_shares, current_value, portfolio_value, buy_score, sell_score, risk_level)
+    
+    # Calculate current position value
+    current_position_value = current_shares * (current_value / current_shares if current_shares > 0 else 0)
+    
+    # Calculate trade size
+    if recommendation in ['BUY', 'STRONG BUY']:
+        # Buy signal - calculate shares to add
+        trade_value = target_position_value - current_position_value
+        if trade_value > 0:
+            shares_to_trade = int(trade_value / (current_value / current_shares if current_shares > 0 else 100))
+            return max(0, shares_to_trade), 'BUY'
+        else:
+            return 0, 'HOLD'
+    
+    elif recommendation in ['SELL', 'STRONG SELL']:
+        # Sell signal - calculate shares to sell
+        trade_value = current_position_value - target_position_value
+        if trade_value > 0:
+            shares_to_trade = int(trade_value / (current_value / current_shares if current_shares > 0 else 100))
+            return max(0, min(shares_to_trade, current_shares)), 'SELL'
+        else:
+            return 0, 'HOLD'
+    
+    else:
+        return 0, 'HOLD'
+
+
+def calculate_gradual_entry_exit(buy_score, sell_score, current_shares, recommendation):
+    """Calculate gradual entry/exit based on confidence levels."""
+    if not config.GRADUAL_ENTRY_ENABLED and not config.GRADUAL_EXIT_ENABLED:
+        return 1.0  # Full position
+    
+    if recommendation in ['BUY', 'STRONG BUY'] and config.GRADUAL_ENTRY_ENABLED:
+        # Gradual entry based on buy score
+        for level, (min_score, max_score) in config.ENTRY_CONFIDENCE_LEVELS.items():
+            if min_score <= buy_score < max_score:
+                if level == 'low':
+                    return 0.25  # Entry 25%
+                elif level == 'medium':
+                    return 0.50  # Entry 50%
+                elif level == 'high':
+                    return 0.75  # Entry 75%
+                else:
+                    return 1.0  # Entry 100%
+    
+    elif recommendation in ['SELL', 'STRONG SELL'] and config.GRADUAL_EXIT_ENABLED:
+        # Gradual exit based on sell score
+        for level, (min_score, max_score) in config.EXIT_CONFIDENCE_LEVELS.items():
+            if min_score <= sell_score < max_score:
+                if level == 'low':
+                    return 0.25  # Exit 25%
+                elif level == 'medium':
+                    return 0.50  # Exit 50%
+                elif level == 'high':
+                    return 0.75  # Exit 75%
+                else:
+                    return 1.0  # Exit 100%
+    
+    return 1.0  # Default to full position
 
 
 def calculate_daily_sell_scores(prices):
@@ -262,18 +359,102 @@ def calculate_signal_trend(scores, window=5):
         return "Insufficient Data"
     
     # Calculate trend
-    slope = (recent_scores.iloc[-1] - recent_scores.iloc[0]) / len(recent_scores)
+    first_score = recent_scores.iloc[0]
+    last_score = recent_scores.iloc[-1]
     
-    if slope > 2:
+    if last_score > first_score + 5:
         return "Strongly Increasing"
-    elif slope > 0.5:
+    elif last_score > first_score + 2:
         return "Increasing"
-    elif slope > -0.5:
-        return "Stable"
-    elif slope > -2:
+    elif last_score < first_score - 5:
+        return "Strongly Decreasing"
+    elif last_score < first_score - 2:
         return "Decreasing"
     else:
-        return "Strongly Decreasing"
+        return "Stable"
+
+
+def plot_sell_likelihood_buckets(daily_scores):
+    """Create simplified chart showing stocks in three buckets: High Sell, Hold, Buy."""
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Categorize each stock based on its latest sell score
+    high_sell = []
+    hold = []
+    buy = []
+    
+    for symbol, scores in daily_scores.items():
+        if scores is not None and len(scores) > 0:
+            latest_score = scores.iloc[-1]
+            if latest_score > 70:
+                high_sell.append((symbol, latest_score))
+            elif latest_score < 30:
+                buy.append((symbol, latest_score))
+            else:
+                hold.append((symbol, latest_score))
+    
+    # Sort each bucket by score
+    high_sell.sort(key=lambda x: x[1], reverse=True)
+    hold.sort(key=lambda x: x[1], reverse=True)
+    buy.sort(key=lambda x: x[1], reverse=True)
+    
+    # Create horizontal bar chart
+    y_positions = []
+    labels = []
+    colors = []
+    
+    current_y = 0
+    
+    # High Sell bucket (red)
+    for symbol, score in high_sell:
+        y_positions.append(current_y)
+        labels.append(f"{symbol} ({score:.1f})")
+        colors.append('#ff4444')
+        current_y += 1
+    
+    # Hold bucket (gray)
+    for symbol, score in hold:
+        y_positions.append(current_y)
+        labels.append(f"{symbol} ({score:.1f})")
+        colors.append('#888888')
+        current_y += 1
+    
+    # Buy bucket (green)
+    for symbol, score in buy:
+        y_positions.append(current_y)
+        labels.append(f"{symbol} ({score:.1f})")
+        colors.append('#44cc44')
+        current_y += 1
+    
+    # Create horizontal bar chart
+    if y_positions:
+        ax.barh(y_positions, [score for _, score in high_sell + hold + buy], color=colors, alpha=0.7)
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels(labels)
+        ax.set_xlabel('Sell Likelihood Score (0-100)')
+        ax.set_title('Current Stock Status - Sell Likelihood Buckets')
+        
+        # Add vertical lines for thresholds
+        ax.axvline(x=70, color='red', linestyle='--', linewidth=1, alpha=0.5)
+        ax.axvline(x=30, color='green', linestyle='--', linewidth=1, alpha=0.5)
+        ax.axvline(x=50, color='gray', linestyle='-', linewidth=0.5, alpha=0.3)
+        
+        # Add legend
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor='#ff4444', label='High Sell (>70)'),
+            Patch(facecolor='#888888', label='Hold (30-70)'),
+            Patch(facecolor='#44cc44', label='Buy (<30)')
+        ]
+        ax.legend(handles=legend_elements, loc='upper right')
+        
+        ax.grid(True, alpha=0.3, axis='x')
+        ax.set_xlim([0, 100])
+    
+    plt.tight_layout()
+    plt.savefig('sell_likelihood_buckets.png', dpi=150, bbox_inches='tight')
+    print("Sell likelihood buckets chart saved as sell_likelihood_buckets.png")
+    plt.close()
 
 
 def print_predictions(results_df, restrictions_df=None):
@@ -283,8 +464,8 @@ def print_predictions(results_df, restrictions_df=None):
     print("=" * 140)
     
     # Format the recommendations table
-    print(f"{'Symbol':<10} {'Shares':<10} {'Buy Score':<12} {'Sell Score':<12} {'Manual':<12} {'Q-Learner':<12} {'RandomForest':<12} {'Final Rec':<15} {'Restriction':<20}")
-    print("-" * 140)
+    print(f"{'Symbol':<10} {'Shares':<10} {'Buy Score':<12} {'Sell Score':<12} {'Manual':<12} {'Q-Learner':<12} {'RandomForest':<12} {'Final Rec':<15} {'Trade Size':<12} {'Restriction':<20}")
+    print("-" * 160)
     
     for idx, row in results_df.iterrows():
         symbol = row['Symbol']
@@ -317,37 +498,30 @@ def print_predictions(results_df, restrictions_df=None):
             elif row['RandomForest'] < -0.05:
                 rf_rec = "SELL"
         
-        # Calculate final recommendation
-        buy_signal = buy_score > config.BUY_SCORE_THRESHOLD
-        sell_signal = sell_score > config.SELL_SCORE_THRESHOLD
+        # Use the pre-calculated recommendation
+        final_rec = row.get('Recommendation', 'HOLD')
         
-        if manual_rec == "BUY" and ql_rec == "BUY":
-            final_rec = "STRONG BUY"
-            action_to_check = "BUY"
-        elif manual_rec == "SELL" and ql_rec == "SELL":
-            final_rec = "STRONG SELL"
-            action_to_check = "SELL"
-        elif buy_signal and manual_rec != "SELL":
-            final_rec = "MODERATE BUY"
-            action_to_check = "BUY"
-        elif sell_signal and manual_rec != "BUY":
-            final_rec = "MODERATE SELL"
-            action_to_check = "SELL"
+        # Get position sizing info
+        shares_to_trade = row.get('SharesToTrade', 0)
+        trade_action = row.get('TradeAction', 'HOLD')
+        gradual_pct = row.get('GradualPercentage', 1.0)
+        
+        if shares_to_trade > 0:
+            trade_size_str = f"{trade_action} {shares_to_trade} ({gradual_pct:.0%})"
         else:
-            final_rec = "HOLD"
-            action_to_check = "HOLD"
+            trade_size_str = "HOLD"
         
         # Check trading restrictions
         restriction_status = "OK"
-        if restrictions_df is not None and action_to_check in ["BUY", "SELL"]:
+        if restrictions_df is not None and final_rec in ["BUY", "SELL"]:
             # Get current price from market value and shares
-            current_price = row['MarketValue'] / row['Shares'] if row['Shares'] > 0 else 0
-            allowed, message = check_trading_restrictions(symbol, action_to_check, current_price, restrictions_df)
+            current_price = row.get('CurrentPrice', row['MarketValue'] / row['Shares'] if row['Shares'] > 0 else 0)
+            allowed, message = check_trading_restrictions(symbol, final_rec, current_price, restrictions_df)
             if not allowed:
                 restriction_status = "⚠️ VIOLATION"
                 print(f"⚠️ RESTRICTION WARNING for {symbol}: {message}")
         
-        print(f"{symbol:<10} {shares:<10.3f} {buy_score:>6.1f}/100   {sell_score:>6.1f}/100   {manual_rec:<12} {ql_rec:<12} {rf_rec:<12} {final_rec:<15} {restriction_status:<20}")
+        print(f"{symbol:<10} {shares:<10.3f} {buy_score:>6.1f}/100   {sell_score:>6.1f}/100   {manual_rec:<12} {ql_rec:<12} {rf_rec:<12} {final_rec:<15} {trade_size_str:<12} {restriction_status:<20}")
     
     print("=" * 140)
     print("📊 HYBRID RECOMMENDATION LOGIC:")
@@ -531,6 +705,36 @@ def analyze_portfolio(csv_path, analysis_months=None):
                 print(f"  Average Buy Likelihood ({analysis_months}mo): {avg_buy_score:.1f}/100")
                 print(f"  Current Buy Likelihood: {current_buy_score:.1f}/100")
             
+            # Calculate position sizing recommendations
+            portfolio_value = portfolio['MarketValue'].sum()
+            current_price = row['MarketValue'] / row['Shares'] if row['Shares'] > 0 else 0
+            
+            # Determine recommendation based on scores
+            if current_buy_score > config.STRONG_BUY_THRESHOLD:
+                recommendation = 'STRONG BUY'
+            elif current_buy_score > config.BUY_SCORE_THRESHOLD:
+                recommendation = 'BUY'
+            elif current_sell_score > config.STRONG_SELL_THRESHOLD:
+                recommendation = 'STRONG SELL'
+            elif current_sell_score > config.SELL_SCORE_THRESHOLD:
+                recommendation = 'SELL'
+            else:
+                recommendation = 'HOLD'
+            
+            # Calculate trade size
+            shares_to_trade, trade_action = calculate_trade_size(
+                shares, row['MarketValue'], portfolio_value, 
+                current_buy_score, current_sell_score, recommendation
+            )
+            
+            # Calculate gradual entry/exit percentage
+            gradual_percentage = calculate_gradual_entry_exit(
+                current_buy_score, current_sell_score, shares, recommendation
+            )
+            
+            # Adjust trade size based on gradual entry/exit
+            shares_to_trade = int(shares_to_trade * gradual_percentage)
+            
             # Store results
             results.append({
                 'Symbol': symbol,
@@ -542,7 +746,12 @@ def analyze_portfolio(csv_path, analysis_months=None):
                 'RandomForest': rf_return,
                 'CurrentSellScore': current_sell_score if sell_scores is not None else None,
                 'CurrentBuyScore': current_buy_score if buy_scores is not None else None,
-                'MarketValue': row['MarketValue']
+                'MarketValue': row['MarketValue'],
+                'Recommendation': recommendation,
+                'SharesToTrade': shares_to_trade,
+                'TradeAction': trade_action,
+                'GradualPercentage': gradual_percentage,
+                'CurrentPrice': current_price
             })
             
         except Exception as e:
@@ -562,6 +771,10 @@ def analyze_portfolio(csv_path, analysis_months=None):
     # Print predictions
     print_predictions(results_df, restrictions_df)
     
+    # Plot sell likelihood buckets
+    if daily_scores:
+        plot_sell_likelihood_buckets(daily_scores)
+    
     # Send email report
     print("\n" + "=" * 60)
     print("SENDING EMAIL REPORT")
@@ -572,6 +785,14 @@ def analyze_portfolio(csv_path, analysis_months=None):
         print("✅ Portfolio analysis complete with email report sent!")
     else:
         print("❌ Portfolio analysis complete but email failed to send")
+    
+    # Maintain sold stocks in portfolio for future analysis
+    if config.KEEP_SOLD_STOCKS:
+        print("\n" + "=" * 60)
+        print("MAINTAINING SOLD STOCKS FOR FUTURE ANALYSIS")
+        print("=" * 60)
+        maintain_sold_stocks(csv_path)
+        print("✅ Sold stocks maintained in portfolio.csv")
     
     return results_df
 

@@ -44,6 +44,7 @@ def send_email_report(results_df, subject, force_send=False):
         # Email configuration
         sender_email = config.EMAIL_SENDER
         receiver_email = config.EMAIL_RECEIVER
+        cc_emails = config.EMAIL_CC
         password = os.getenv('GMAIL_PASSWORD')
         
         if not password:
@@ -61,6 +62,8 @@ def send_email_report(results_df, subject, force_send=False):
         print("=" * 60)
         print(f"Sending from: {sender_email}")
         print(f"Sending to: {receiver_email}")
+        if cc_emails:
+            print(f"CC: {', '.join(cc_emails)}")
         print("✅ Using saved password from environment variables")
         
         # Create message
@@ -68,6 +71,8 @@ def send_email_report(results_df, subject, force_send=False):
         msg['From'] = sender_email
         msg['To'] = receiver_email
         msg['Subject'] = subject
+        if cc_emails:
+            msg['Cc'] = ', '.join(cc_emails)
         
         # Create email body
         body = f"""
@@ -81,14 +86,13 @@ def send_email_report(results_df, subject, force_send=False):
             <table border="1" cellpadding="5" cellspacing="0">
                 <tr>
                     <th>Symbol</th>
-                    <th>Shares</th>
                     <th>BuyHold</th>
                     <th>Benchmark</th>
                     <th>Manual</th>
                     <th>Q-Learner</th>
                     <th>RandomForest</th>
-                    <th>CurrentSellScore</th>
-                    <th>CurrentBuyScore</th>
+                    <th>Sell Score</th>
+                    <th>Buy Score</th>
                 </tr>
         """
         
@@ -105,7 +109,6 @@ def send_email_report(results_df, subject, force_send=False):
             body += f"""
                 <tr>
                     <td>{row['Symbol']}</td>
-                    <td>{row['Shares']}</td>
                     <td>{buyhold_val}</td>
                     <td>{benchmark_val}</td>
                     <td>{manual_val}</td>
@@ -115,6 +118,39 @@ def send_email_report(results_df, subject, force_send=False):
                     <td>{buy_score_val}</td>
                 </tr>
             """
+        
+        body += """
+            </table>
+            
+            <h3>Position Sizing Recommendations</h3>
+            <table border="1" cellpadding="5" cellspacing="0">
+                <tr>
+                    <th>Symbol</th>
+                    <th>Recommendation</th>
+                    <th>Trade Size</th>
+                    <th>Gradual %</th>
+                    <th>Current Price</th>
+                </tr>
+        """
+        
+        # Add position sizing recommendations
+        for idx, row in results_df.iterrows():
+            if pd.notna(row.get('SharesToTrade')) and row['SharesToTrade'] > 0:
+                recommendation = row.get('Recommendation', 'HOLD')
+                shares_to_trade = row['SharesToTrade']
+                trade_action = row.get('TradeAction', 'HOLD')
+                gradual_pct = row.get('GradualPercentage', 1.0)
+                current_price = row.get('CurrentPrice', 0)
+                
+                body += f"""
+                    <tr>
+                        <td>{row['Symbol']}</td>
+                        <td>{recommendation}</td>
+                        <td>{trade_action} {shares_to_trade}</td>
+                        <td>{gradual_pct:.0%}</td>
+                        <td>${current_price:.2f}</td>
+                    </tr>
+                """
         
         body += """
             </table>
@@ -226,6 +262,7 @@ def send_email_report(results_df, subject, force_send=False):
         chart_files = [
             'portfolio_comparison.png',
             'sell_likelihood_tracking.png',
+            'sell_likelihood_buckets.png',
             'sell_likelihood_heatmap.png',
             'buy_likelihood_heatmap.png'
         ]
@@ -244,10 +281,11 @@ def send_email_report(results_df, subject, force_send=False):
                     print(f"Attached: {chart_file}")
         
         # Send email
+        all_recipients = [receiver_email] + (cc_emails if cc_emails else [])
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(sender_email, password)
-        server.sendmail(sender_email, receiver_email, msg.as_string())
+        server.sendmail(sender_email, all_recipients, msg.as_string())
         server.quit()
         
         print("\n✅ Email sent successfully!")
