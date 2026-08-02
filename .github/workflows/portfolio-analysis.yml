@@ -28,7 +28,7 @@ jobs:
       env:
         GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
       run: |
-        python portfolio_analysis.py
+        python portfolio_analysis_modular.py
     
     - name: Upload charts as artifacts
       if: always()

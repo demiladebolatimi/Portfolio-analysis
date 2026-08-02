@@ -13,8 +13,11 @@ from datetime import datetime
 import config
 
 
-def should_send_email(results_df, confidence_threshold=65):
+def should_send_email(results_df, confidence_threshold=None):
     """Check if email should be sent based on confidence levels."""
+    if confidence_threshold is None:
+        confidence_threshold = config.EMAIL_CONFIDENCE_THRESHOLD
+        
     for idx, row in results_df.iterrows():
         buy_score = row['CurrentBuyScore']
         sell_score = row['CurrentSellScore']
@@ -32,7 +35,8 @@ def send_email_report(results_df, subject, force_send=False):
     try:
         # Check if email should be sent based on confidence levels
         if not force_send and not should_send_email(results_df):
-            print("📧 Email skipped - No high-confidence signals (>65 or <35) detected")
+            threshold = config.EMAIL_CONFIDENCE_THRESHOLD
+            print(f"📧 Email skipped - No high-confidence signals (>{threshold} or <{100-threshold}) detected")
             return False
         # Load environment variables
         load_dotenv()

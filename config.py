@@ -9,6 +9,7 @@ MIN_TRAINING_SAMPLES = 100  # Minimum samples for ML training
 # Trading settings
 MIN_DATA_DAYS = 252  # Minimum days of data required (1 year)
 ACCURACY_THRESHOLD = 0.55  # Minimum accuracy for Random Forest participation
+EMAIL_CONFIDENCE_THRESHOLD = 65  # Only send email if signals >65 or <35
 
 # Email settings
 EMAIL_SENDER = "demibotti2000@gmail.com"
