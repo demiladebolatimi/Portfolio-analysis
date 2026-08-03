@@ -1,5 +1,7 @@
 """Configuration constants for portfolio analysis system."""
 
+import os
+
 # Analysis settings
 ANALYSIS_MONTHS = 6  # Analysis period in months
 TRAINING_YEARS = 5  # Training data period in years
@@ -14,7 +16,7 @@ EMAIL_CONFIDENCE_THRESHOLD = 65  # Only send email if signals >65 or <35
 # Email settings
 EMAIL_SENDER = "demibotti2000@gmail.com"
 EMAIL_RECEIVER = "demibotti2000@gmail.com"
-EMAIL_BCC_ENABLED = True  # Set to False to disable BCC recipients
+EMAIL_BCC_ENABLED = os.getenv('EMAIL_BCC_ENABLED', 'true').lower() == 'true'  # Can be set via environment variable
 EMAIL_BCC = ["laetitiarakotoarisoa@gmail.com", "nifemibolatimi@gmail.com"]  # Hidden recipients
 
 # Technical indicator windows

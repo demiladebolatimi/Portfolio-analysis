@@ -27,6 +27,7 @@ jobs:
     - name: Run portfolio analysis
       env:
         GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+        EMAIL_BCC_ENABLED: ${{ vars.EMAIL_BCC_ENABLED || 'true' }}
       run: |
         python portfolio_analysis_modular.py
     
@@ -38,6 +39,7 @@ jobs:
         path: |
           portfolio_comparison.png
           sell_likelihood_tracking.png
+          sell_likelihood_buckets.png
           sell_likelihood_heatmap.png
           buy_likelihood_heatmap.png
         retention-days: 30
