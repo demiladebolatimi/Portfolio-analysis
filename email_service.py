@@ -44,7 +44,7 @@ def send_email_report(results_df, subject, force_send=False):
         # Email configuration
         sender_email = config.EMAIL_SENDER
         receiver_email = config.EMAIL_RECEIVER
-        cc_emails = config.EMAIL_CC if config.EMAIL_CC_ENABLED else []
+        bcc_emails = config.EMAIL_BCC if config.EMAIL_BCC_ENABLED else []
         password = os.getenv('GMAIL_PASSWORD')
         
         if not password:
@@ -62,10 +62,10 @@ def send_email_report(results_df, subject, force_send=False):
         print("=" * 60)
         print(f"Sending from: {sender_email}")
         print(f"Sending to: {receiver_email}")
-        if cc_emails:
-            print(f"CC: {', '.join(cc_emails)}")
+        if bcc_emails:
+            print(f"BCC: {len(bcc_emails)} recipient(s) (hidden)")
         else:
-            print("CC: Disabled")
+            print("BCC: Disabled")
         print("✅ Using saved password from environment variables")
         
         # Create message
@@ -73,8 +73,6 @@ def send_email_report(results_df, subject, force_send=False):
         msg['From'] = sender_email
         msg['To'] = receiver_email
         msg['Subject'] = subject
-        if cc_emails:
-            msg['Cc'] = ', '.join(cc_emails)
         
         # Create email body
         body = f"""
@@ -283,7 +281,7 @@ def send_email_report(results_df, subject, force_send=False):
                     print(f"Attached: {chart_file}")
         
         # Send email
-        all_recipients = [receiver_email] + (cc_emails if cc_emails else [])
+        all_recipients = [receiver_email] + (bcc_emails if bcc_emails else [])
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(sender_email, password)

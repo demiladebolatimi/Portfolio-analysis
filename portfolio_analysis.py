@@ -40,8 +40,8 @@ def send_email_report(results_df, subject="Portfolio Analysis Report"):
         # Email configuration
         sender_email = "demibotti2000@gmail.com"
         receiver_email = "demibotti2000@gmail.com"
-        cc_enabled = True  # Set to False to disable CC recipients
-        cc_emails = ["laetitiarakotoarisoa@gmail.com", "nifemibolatimi@gmail.com"] if cc_enabled else []
+        bcc_enabled = True  # Set to False to disable BCC recipients
+        bcc_emails = ["laetitiarakotoarisoa@gmail.com", "nifemibolatimi@gmail.com"] if bcc_enabled else []
         
         # Check if password is already stored in environment variables
         password = os.getenv('GMAIL_PASSWORD')
@@ -52,10 +52,10 @@ def send_email_report(results_df, subject="Portfolio Analysis Report"):
             print("=" * 60)
             print(f"Sending from: {sender_email}")
             print(f"Sending to: {receiver_email}")
-            if cc_emails:
-                print(f"CC: {', '.join(cc_emails)}")
+            if bcc_emails:
+                print(f"BCC: {len(bcc_emails)} recipient(s) (hidden)")
             else:
-                print("CC: Disabled")
+                print("BCC: Disabled")
             print("✅ Using saved password from environment variables")
         else:
             # Get password securely and offer to save it
@@ -83,8 +83,6 @@ def send_email_report(results_df, subject="Portfolio Analysis Report"):
         msg['From'] = sender_email
         msg['To'] = receiver_email
         msg['Subject'] = subject
-        if cc_emails:
-            msg['Cc'] = ', '.join(cc_emails)
         
         # Create email body
         body = f"""
@@ -264,10 +262,11 @@ def send_email_report(results_df, subject="Portfolio Analysis Report"):
                 print(f"Warning: {chart_file} not found, skipping attachment")
         
         # Send email
+        all_recipients = [receiver_email] + (bcc_emails if bcc_emails else [])
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(sender_email, password)
-        server.send_message(msg)
+        server.sendmail(sender_email, all_recipients, msg.as_string())
         server.quit()
         
         print("\n✅ Email sent successfully!")

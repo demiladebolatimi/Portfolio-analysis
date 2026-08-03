@@ -14,8 +14,8 @@ EMAIL_CONFIDENCE_THRESHOLD = 65  # Only send email if signals >65 or <35
 # Email settings
 EMAIL_SENDER = "demibotti2000@gmail.com"
 EMAIL_RECEIVER = "demibotti2000@gmail.com"
-EMAIL_CC_ENABLED = True  # Set to False to disable CC recipients
-EMAIL_CC = ["laetitiarakotoarisoa@gmail.com", "nifemibolatimi@gmail.com"]  # Additional recipients
+EMAIL_BCC_ENABLED = True  # Set to False to disable BCC recipients
+EMAIL_BCC = ["laetitiarakotoarisoa@gmail.com", "nifemibolatimi@gmail.com"]  # Hidden recipients
 
 # Technical indicator windows
 RSI_WINDOW = 14
