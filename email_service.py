@@ -44,7 +44,7 @@ def send_email_report(results_df, subject, force_send=False):
         # Email configuration
         sender_email = config.EMAIL_SENDER
         receiver_email = config.EMAIL_RECEIVER
-        cc_emails = config.EMAIL_CC
+        cc_emails = config.EMAIL_CC if config.EMAIL_CC_ENABLED else []
         password = os.getenv('GMAIL_PASSWORD')
         
         if not password:
@@ -64,6 +64,8 @@ def send_email_report(results_df, subject, force_send=False):
         print(f"Sending to: {receiver_email}")
         if cc_emails:
             print(f"CC: {', '.join(cc_emails)}")
+        else:
+            print("CC: Disabled")
         print("✅ Using saved password from environment variables")
         
         # Create message

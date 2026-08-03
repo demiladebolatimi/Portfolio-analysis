@@ -40,6 +40,8 @@ def send_email_report(results_df, subject="Portfolio Analysis Report"):
         # Email configuration
         sender_email = "demibotti2000@gmail.com"
         receiver_email = "demibotti2000@gmail.com"
+        cc_enabled = True  # Set to False to disable CC recipients
+        cc_emails = ["laetitiarakotoarisoa@gmail.com", "nifemibolatimi@gmail.com"] if cc_enabled else []
         
         # Check if password is already stored in environment variables
         password = os.getenv('GMAIL_PASSWORD')
@@ -50,6 +52,10 @@ def send_email_report(results_df, subject="Portfolio Analysis Report"):
             print("=" * 60)
             print(f"Sending from: {sender_email}")
             print(f"Sending to: {receiver_email}")
+            if cc_emails:
+                print(f"CC: {', '.join(cc_emails)}")
+            else:
+                print("CC: Disabled")
             print("✅ Using saved password from environment variables")
         else:
             # Get password securely and offer to save it
@@ -77,6 +83,8 @@ def send_email_report(results_df, subject="Portfolio Analysis Report"):
         msg['From'] = sender_email
         msg['To'] = receiver_email
         msg['Subject'] = subject
+        if cc_emails:
+            msg['Cc'] = ', '.join(cc_emails)
         
         # Create email body
         body = f"""
