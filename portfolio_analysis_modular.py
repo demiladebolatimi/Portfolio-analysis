@@ -15,8 +15,7 @@ from portfolio_manager import (
 from strategies import run_qlearner_strategy, run_randomforest_strategy
 from email_service import send_email_report
 from technical_indicators import (
-    calculate_rsi, calculate_momentum, calculate_macd,
-    calculate_daily_sell_scores, calculate_daily_buy_scores
+    calculate_rsi, calculate_momentum, calculate_macd
 )
 
 
