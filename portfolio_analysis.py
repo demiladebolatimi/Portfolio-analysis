@@ -1426,10 +1426,22 @@ def analyze_portfolio(csv_path, analysis_months=6):
         # Run Q-Learner Strategy (score-based: >65 sell, <35 buy)
         ql_trades = run_qlearner_strategy(symbol, start_date, end_date)
         if ql_trades is not None:
-            ql_portfolio = compute_portfolio_value_from_trades(ql_trades, prices)
+            # Use the prices that match the trades period (test period from Q-Learner)
+            ql_prices = hist['Close']  # Use full history prices to match trades index
+            ql_portfolio = compute_portfolio_value_from_trades(ql_trades, ql_prices)
             if ql_portfolio is not None:
-                ql_return = (ql_portfolio.iloc[-1] - ql_portfolio.iloc[0]) / ql_portfolio.iloc[0]
-                print(f"  Q-Learner Strategy Return: {ql_return:.2%}")
+                # Calculate return for the analysis period only
+                analysis_start = pd.Timestamp(start_date).tz_localize('America/New_York')
+                analysis_end = pd.Timestamp(end_date).tz_localize('America/New_York')
+                
+                # Filter portfolio values to analysis period
+                ql_analysis = ql_portfolio[(ql_portfolio.index >= analysis_start) & (ql_portfolio.index <= analysis_end)]
+                
+                if len(ql_analysis) >= 2:
+                    ql_return = (ql_analysis.iloc[-1] - ql_analysis.iloc[0]) / ql_analysis.iloc[0]
+                    print(f"  Q-Learner Strategy Return: {ql_return:.2%}")
+                else:
+                    ql_return = None
             else:
                 ql_return = None
         else:

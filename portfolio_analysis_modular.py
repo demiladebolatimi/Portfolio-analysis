@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime, timedelta
 import time
+import yfinance as yf
 
 import config
 from portfolio_manager import (
@@ -643,19 +644,38 @@ def analyze_portfolio(csv_path, analysis_months=None):
             ql_trades = run_qlearner_strategy(symbol, start_date, end_date)
             ql_return = None
             if ql_trades is not None:
-                ql_portfolio = compute_portfolio_value_from_trades(ql_trades, prices)
-                if ql_portfolio is not None and len(ql_portfolio) > 0:
-                    # Get first and last values as scalars
-                    first_value = ql_portfolio.iloc[0].values[0] if isinstance(ql_portfolio.iloc[0], pd.Series) else ql_portfolio.iloc[0]
-                    last_value = ql_portfolio.iloc[-1].values[0] if isinstance(ql_portfolio.iloc[-1], pd.Series) else ql_portfolio.iloc[-1]
-                    # Convert to float if needed
-                    first_value = float(first_value) if not isinstance(first_value, (int, float)) else first_value
-                    last_value = float(last_value) if not isinstance(last_value, (int, float)) else last_value
-                    if first_value != 0:
-                        ql_return = (last_value - first_value) / first_value
-                    else:
-                        ql_return = 0
-                    print(f"  Q-Learner Strategy Return: {ql_return:.2%}")
+                # Use the prices that match the trades period (test period from Q-Learner)
+                # Get full history prices to match trades index
+                ticker = yf.Ticker(symbol)
+                time.sleep(0.3)
+                hist_full = ticker.history(period="5y")
+                if not hist_full.empty:
+                    ql_prices = hist_full['Close']
+                    ql_portfolio = compute_portfolio_value_from_trades(ql_trades, ql_prices)
+                    if ql_portfolio is not None and len(ql_portfolio) > 0:
+                        # Calculate return for the analysis period only
+                        analysis_start = pd.Timestamp(start_date).tz_localize('America/New_York')
+                        analysis_end = pd.Timestamp(end_date).tz_localize('America/New_York')
+                        
+                        # Filter portfolio values to analysis period
+                        ql_analysis = ql_portfolio[(ql_portfolio.index >= analysis_start) & (ql_portfolio.index <= analysis_end)]
+                        
+                        if len(ql_analysis) >= 2:
+                            # Get first and last values as scalars
+                            first_value = ql_analysis.iloc[0].values[0] if isinstance(ql_analysis.iloc[0], pd.Series) else ql_analysis.iloc[0]
+                            last_value = ql_analysis.iloc[-1].values[0] if isinstance(ql_analysis.iloc[-1], pd.Series) else ql_analysis.iloc[-1]
+                            # Convert to float if needed
+                            first_value = float(first_value) if not isinstance(first_value, (int, float)) else first_value
+                            last_value = float(last_value) if not isinstance(last_value, (int, float)) else last_value
+                            if first_value != 0:
+                                ql_return = (last_value - first_value) / first_value
+                            else:
+                                ql_return = 0
+                            print(f"  Q-Learner Strategy Return: {ql_return:.2%}")
+                        else:
+                            ql_return = None
+                else:
+                    ql_return = None
             else:
                 ql_return = None
             

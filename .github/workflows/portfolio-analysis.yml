@@ -27,7 +27,7 @@ jobs:
     - name: Run portfolio analysis
       env:
         GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
-        EMAIL_BCC_ENABLED: ${{ vars.EMAIL_BCC_ENABLED || 'true' }}
+        EMAIL_BCC_ENABLED: ${{ vars.EMAIL_BCC_ENABLED }}
       run: |
         python portfolio_analysis_modular.py
     
