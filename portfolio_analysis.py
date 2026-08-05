@@ -1314,15 +1314,22 @@ def compute_portfolio_value_from_trades(trades, prices, sv=100000):
     if trades is None or prices is None:
         return None
     
+    print(f"  compute_portfolio_value_from_trades: trades type={type(trades)}, prices type={type(prices)}")
+    print(f"  compute_portfolio_value_from_trades: trades shape={trades.shape if hasattr(trades, 'shape') else 'N/A'}, prices len={len(prices)}")
+    print(f"  compute_portfolio_value_from_trades: trades index range={trades.index.min() if len(trades) > 0 else 'N/A'} to {trades.index.max() if len(trades) > 0 else 'N/A'}")
+    print(f"  compute_portfolio_value_from_trades: prices index range={prices.index.min()} to {prices.index.max()}")
+    
     portfolio_values = pd.Series(index=prices.index, dtype=float)
     portfolio_values.iloc[0] = sv
     
     cash = sv
     shares = 0
     
+    trade_count = 0
     for date in prices.index:
         if date in trades.index:
             trade = trades.loc[date, 'Trades']
+            trade_count += 1
             if trade > 0:  # Buy
                 cost = trade * prices.loc[date] * 1.005 + 9.95  # Include impact and commission
                 cash -= cost
@@ -1333,6 +1340,11 @@ def compute_portfolio_value_from_trades(trades, prices, sv=100000):
                 shares += trade  # trade is negative
         
         portfolio_values.loc[date] = cash + shares * prices.loc[date]
+    
+    print(f"  compute_portfolio_value_from_trades: Processed {trade_count} trades")
+    print(f"  compute_portfolio_value_from_trades: Final cash={cash}, shares={shares}")
+    print(f"  compute_portfolio_value_from_trades: portfolio_values type={type(portfolio_values)}, shape={portfolio_values.shape if hasattr(portfolio_values, 'shape') else 'N/A'}")
+    print(f"  compute_portfolio_value_from_trades: First value={portfolio_values.iloc[0]}, Last value={portfolio_values.iloc[-1]}")
     
     return portfolio_values
 
