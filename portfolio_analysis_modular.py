@@ -57,22 +57,15 @@ def compute_portfolio_value_from_trades(trades, prices, sv=100000):
     if trades is None or prices is None:
         return None
     
-    print(f"  compute_portfolio_value_from_trades: trades type={type(trades)}, prices type={type(prices)}")
-    print(f"  compute_portfolio_value_from_trades: trades shape={trades.shape if hasattr(trades, 'shape') else 'N/A'}, prices len={len(prices)}")
-    print(f"  compute_portfolio_value_from_trades: trades index range={trades.index.min() if len(trades) > 0 else 'N/A'} to {trades.index.max() if len(trades) > 0 else 'N/A'}")
-    print(f"  compute_portfolio_value_from_trades: prices index range={prices.index.min()} to {prices.index.max()}")
-    
     portfolio_values = pd.Series(index=prices.index, dtype=float)
     portfolio_values.iloc[0] = sv
     
     cash = sv
     shares = 0
     
-    trade_count = 0
     for date in prices.index:
         if date in trades.index:
             trade = trades.loc[date, 'Trades']
-            trade_count += 1
             if trade > 0:  # Buy
                 cost = trade * prices.loc[date] * 1.005 + 9.95  # Include impact and commission
                 cash -= cost
@@ -83,11 +76,6 @@ def compute_portfolio_value_from_trades(trades, prices, sv=100000):
                 shares += trade  # trade is negative
         
         portfolio_values.loc[date] = cash + shares * prices.loc[date]
-    
-    print(f"  compute_portfolio_value_from_trades: Processed {trade_count} trades")
-    print(f"  compute_portfolio_value_from_trades: Final cash={cash}, shares={shares}")
-    print(f"  compute_portfolio_value_from_trades: portfolio_values type={type(portfolio_values)}, shape={portfolio_values.shape if hasattr(portfolio_values, 'shape') else 'N/A'}")
-    print(f"  compute_portfolio_value_from_trades: First value={portfolio_values.iloc[0]}, Last value={portfolio_values.iloc[-1]}")
     
     return portfolio_values
 
@@ -227,10 +215,13 @@ def print_predictions(results_df, restrictions_df=None):
         
         # Get manual strategy recommendation
         manual_rec = "HOLD"
-        if row['Manual'] > 0.05:
-            manual_rec = "BUY"
-        elif row['Manual'] < -0.05:
-            manual_rec = "SELL"
+        if pd.notna(row['Manual']):
+            if row['Manual'] > 0.05:
+                manual_rec = "BUY"
+            elif row['Manual'] < -0.05:
+                manual_rec = "SELL"
+        else:
+            manual_rec = "N/A"
         
         # Get Q-Learner recommendation
         ql_rec = "HOLD"
@@ -372,16 +363,16 @@ def analyze_portfolio(csv_path, analysis_months=None):
             try:
                 # Simple manual strategy: buy when RSI < 30, sell when RSI > 70
                 rsi = calculate_rsi(prices, window=14)
-                trades = pd.Series(index=prices.index, dtype=float)
-                trades[:] = 0
+                trades = pd.DataFrame(index=prices.index, columns=["Trades"])
+                trades["Trades"] = 0.0
                 
                 for i in range(len(prices)):
                     if i < 14:
                         continue
-                    if rsi.iloc[i] < 30 and trades.iloc[i-1] == 0:
-                        trades.iloc[i] = 1000
-                    elif rsi.iloc[i] > 70 and trades.iloc[i-1] != 0:
-                        trades.iloc[i] = -1000
+                    if rsi.iloc[i] < 30 and trades.iloc[i-1, 0] == 0:
+                        trades.iloc[i, 0] = 1000
+                    elif rsi.iloc[i] > 70 and trades.iloc[i-1, 0] != 0:
+                        trades.iloc[i, 0] = -1000
                 
                 portfolio_value = compute_portfolio_value_from_trades(trades, prices)
                 if portfolio_value is not None:
