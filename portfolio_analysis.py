@@ -1439,6 +1439,8 @@ def analyze_portfolio(csv_path, analysis_months=6):
             if ql_portfolio is not None:
                 print(f"  Q-Learner: Got {len(ql_portfolio)} portfolio values")
                 print(f"  Q-Learner: Portfolio date range: {ql_portfolio.index.min()} to {ql_portfolio.index.max()}")
+                print(f"  Q-Learner: Sample portfolio values: {ql_portfolio.head(3).tolist()} ... {ql_portfolio.tail(3).tolist()}")
+                print(f"  Q-Learner: NaN count in portfolio: {ql_portfolio.isna().sum()}")
                 
                 # Calculate return for the analysis period only
                 analysis_start = pd.Timestamp(start_date).tz_localize('America/New_York').normalize()
@@ -1448,6 +1450,8 @@ def analyze_portfolio(csv_path, analysis_months=6):
                 # Filter portfolio values to analysis period
                 ql_analysis = ql_portfolio[(ql_portfolio.index >= analysis_start) & (ql_portfolio.index <= analysis_end)]
                 print(f"  Q-Learner: After filtering: {len(ql_analysis)} portfolio values")
+                print(f"  Q-Learner: Sample filtered values: {ql_analysis.head(3).tolist()} ... {ql_analysis.tail(3).tolist()}")
+                print(f"  Q-Learner: NaN count in filtered: {ql_analysis.isna().sum()}")
                 
                 if len(ql_analysis) >= 2:
                     ql_return = (ql_analysis.iloc[-1] - ql_analysis.iloc[0]) / ql_analysis.iloc[0]
