@@ -1426,26 +1426,41 @@ def analyze_portfolio(csv_path, analysis_months=6):
         # Run Q-Learner Strategy (score-based: >65 sell, <35 buy)
         ql_trades = run_qlearner_strategy(symbol, start_date, end_date)
         if ql_trades is not None:
+            print(f"  Q-Learner: Got {len(ql_trades)} trade records")
+            print(f"  Q-Learner: Trade date range: {ql_trades.index.min()} to {ql_trades.index.max()}")
+            print(f"  Q-Learner: Analysis period: {start_date} to {end_date}")
+            
             # Use the prices that match the trades period (test period from Q-Learner)
             ql_prices = hist['Close']  # Use full history prices to match trades index
+            print(f"  Q-Learner: Got {len(ql_prices)} price records")
+            print(f"  Q-Learner: Price date range: {ql_prices.index.min()} to {ql_prices.index.max()}")
+            
             ql_portfolio = compute_portfolio_value_from_trades(ql_trades, ql_prices)
             if ql_portfolio is not None:
+                print(f"  Q-Learner: Got {len(ql_portfolio)} portfolio values")
+                print(f"  Q-Learner: Portfolio date range: {ql_portfolio.index.min()} to {ql_portfolio.index.max()}")
+                
                 # Calculate return for the analysis period only
                 analysis_start = pd.Timestamp(start_date).tz_localize('America/New_York')
                 analysis_end = pd.Timestamp(end_date).tz_localize('America/New_York')
+                print(f"  Q-Learner: Filtering to analysis period: {analysis_start} to {analysis_end}")
                 
                 # Filter portfolio values to analysis period
                 ql_analysis = ql_portfolio[(ql_portfolio.index >= analysis_start) & (ql_portfolio.index <= analysis_end)]
+                print(f"  Q-Learner: After filtering: {len(ql_analysis)} portfolio values")
                 
                 if len(ql_analysis) >= 2:
                     ql_return = (ql_analysis.iloc[-1] - ql_analysis.iloc[0]) / ql_analysis.iloc[0]
+                    print(f"  Q-Learner: First value: {ql_analysis.iloc[0]}, Last value: {ql_analysis.iloc[-1]}")
                     print(f"  Q-Learner Strategy Return: {ql_return:.2%}")
                 else:
+                    print(f"  Q-Learner: Insufficient data points in analysis period ({len(ql_analysis)} < 2)")
                     ql_return = None
             else:
+                print(f"  Q-Learner: Portfolio computation failed")
                 ql_return = None
         else:
-            ql_return = None
+            print(f"  Q-Learner: No trades returned")
         
         # Run Random Forest Strategy (only if accuracy > 55%)
         rf_trades, rf_accuracy, rf_model = run_randomforest_strategy(symbol, start_date, end_date)
