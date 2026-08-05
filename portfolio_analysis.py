@@ -1441,8 +1441,8 @@ def analyze_portfolio(csv_path, analysis_months=6):
                 print(f"  Q-Learner: Portfolio date range: {ql_portfolio.index.min()} to {ql_portfolio.index.max()}")
                 
                 # Calculate return for the analysis period only
-                analysis_start = pd.Timestamp(start_date).tz_localize('America/New_York')
-                analysis_end = pd.Timestamp(end_date).tz_localize('America/New_York')
+                analysis_start = pd.Timestamp(start_date).tz_localize('America/New_York').normalize()
+                analysis_end = pd.Timestamp(end_date).tz_localize('America/New_York').normalize()
                 print(f"  Q-Learner: Filtering to analysis period: {analysis_start} to {analysis_end}")
                 
                 # Filter portfolio values to analysis period
