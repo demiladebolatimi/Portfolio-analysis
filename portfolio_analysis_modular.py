@@ -483,5 +483,5 @@ def analyze_portfolio(csv_path, analysis_months=None):
 
 
 if __name__ == "__main__":
-    csv_path = "/Users/king.botti/Documents/ML_for_trading/ML4T_2026Summer/portfolio.csv"
+    csv_path = "portfolio.csv"
     results = analyze_portfolio(csv_path, analysis_months=config.ANALYSIS_MONTHS)
