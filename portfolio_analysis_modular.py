@@ -662,7 +662,7 @@ def analyze_portfolio(csv_path, analysis_months=None):
                     if ql_portfolio is not None and len(ql_portfolio) > 0:
                         print(f"  Q-Learner: Got {len(ql_portfolio)} portfolio values")
                         print(f"  Q-Learner: Portfolio date range: {ql_portfolio.index.min()} to {ql_portfolio.index.max()}")
-                        print(f"  Q-Learner: Sample portfolio values: {ql_portfolio.head(3).tolist()} ... {ql_portfolio.tail(3).tolist()}")
+                        print(f"  Q-Learner: Sample portfolio values: {ql_portfolio.head(3).values.tolist() if hasattr(ql_portfolio, 'iloc') else list(ql_portfolio.head(3))} ... {ql_portfolio.tail(3).values.tolist() if hasattr(ql_portfolio, 'iloc') else list(ql_portfolio.tail(3))}")
                         print(f"  Q-Learner: NaN count in portfolio: {ql_portfolio.isna().sum()}")
                         
                         # Calculate return for the analysis period only
@@ -673,7 +673,7 @@ def analyze_portfolio(csv_path, analysis_months=None):
                         # Filter portfolio values to analysis period
                         ql_analysis = ql_portfolio[(ql_portfolio.index >= analysis_start) & (ql_portfolio.index <= analysis_end)]
                         print(f"  Q-Learner: After filtering: {len(ql_analysis)} portfolio values")
-                        print(f"  Q-Learner: Sample filtered values: {ql_analysis.head(3).tolist()} ... {ql_analysis.tail(3).tolist()}")
+                        print(f"  Q-Learner: Sample filtered values: {ql_analysis.head(3).values.tolist() if hasattr(ql_analysis, 'iloc') else list(ql_analysis.head(3))} ... {ql_analysis.tail(3).values.tolist() if hasattr(ql_analysis, 'iloc') else list(ql_analysis.tail(3))}")
                         print(f"  Q-Learner: NaN count in filtered: {ql_analysis.isna().sum()}")
                         
                         if len(ql_analysis) >= 2:
