@@ -128,7 +128,7 @@ def detect_market_regime(spy_prices, vix_value=None):
 
 
 def calculate_daily_sell_scores(prices):
-    """Calculate daily sell likelihood scores (0-100) based on indicators."""
+    """Calculate daily sell likelihood scores (0-100) based on indicators with trend bias."""
     if prices is None or len(prices) < 30:
         return None
     
@@ -136,6 +136,7 @@ def calculate_daily_sell_scores(prices):
     rsi_values = calculate_rsi(prices, window=14)
     mom_values = calculate_momentum(prices, window=14)
     macd_values = calculate_macd(prices)
+    ma200 = prices.rolling(window=200).mean()
     
     daily_scores = pd.Series(index=prices.index, dtype=float)
     
@@ -148,6 +149,8 @@ def calculate_daily_sell_scores(prices):
             rsi_val = rsi_values.iloc[i] if i < len(rsi_values) else None
             mom_val = mom_values.iloc[i] if i < len(mom_values) else None
             macd_val = macd_values.iloc[i] if i < len(macd_values) else None
+            current_price = prices.iloc[i]
+            current_ma200 = ma200.iloc[i] if i < len(ma200) else current_price
             
             if pd.isna(rsi_val) or pd.isna(mom_val) or pd.isna(macd_val):
                 daily_scores.iloc[i] = 50
@@ -163,9 +166,14 @@ def calculate_daily_sell_scores(prices):
             # MACD: positive = lower sell score, negative = higher sell score
             macd_score = min(100, max(0, (0 - macd_val) / 2 * 100))  # +2 -> 0%, -2 -> 100%
             
-            # Combined score (weighted average)
-            combined_score = (rsi_score * 0.4 + mom_score * 0.3 + macd_score * 0.3)
-            daily_scores.iloc[i] = combined_score
+            # Trend bias: boost sell score if price < MA200 (downtrend)
+            trend_bias = 0
+            if current_price < current_ma200:
+                trend_bias = 15  # Add 15 points for downtrend
+            
+            # Combined score (weighted average) with trend bias
+            combined_score = (rsi_score * 0.35 + mom_score * 0.25 + macd_score * 0.25 + trend_bias)
+            daily_scores.iloc[i] = min(100, max(0, combined_score))
             
         except Exception:
             daily_scores.iloc[i] = 50
@@ -174,7 +182,7 @@ def calculate_daily_sell_scores(prices):
 
 
 def calculate_daily_buy_scores(prices):
-    """Calculate daily buy likelihood scores (0-100) based on indicators."""
+    """Calculate daily buy likelihood scores (0-100) based on indicators with trend bias."""
     if prices is None or len(prices) < 30:
         return None
     
@@ -182,6 +190,7 @@ def calculate_daily_buy_scores(prices):
     rsi_values = calculate_rsi(prices, window=14)
     mom_values = calculate_momentum(prices, window=14)
     macd_values = calculate_macd(prices)
+    ma200 = prices.rolling(window=200).mean()
     
     daily_scores = pd.Series(index=prices.index, dtype=float)
     
@@ -194,6 +203,8 @@ def calculate_daily_buy_scores(prices):
             rsi_val = rsi_values.iloc[i] if i < len(rsi_values) else None
             mom_val = mom_values.iloc[i] if i < len(mom_values) else None
             macd_val = macd_values.iloc[i] if i < len(macd_values) else None
+            current_price = prices.iloc[i]
+            current_ma200 = ma200.iloc[i] if i < len(ma200) else current_price
             
             if pd.isna(rsi_val) or pd.isna(mom_val) or pd.isna(macd_val):
                 daily_scores.iloc[i] = 50
@@ -209,9 +220,14 @@ def calculate_daily_buy_scores(prices):
             # MACD: positive = higher buy score, negative = lower buy score
             macd_score = min(100, max(0, (macd_val + 2) / 4 * 100))  # -2 -> 0%, +2 -> 100%
             
-            # Combined score (weighted average)
-            combined_score = (rsi_score * 0.4 + mom_score * 0.3 + macd_score * 0.3)
-            daily_scores.iloc[i] = combined_score
+            # Trend bias: boost buy score if price > MA200 (uptrend)
+            trend_bias = 0
+            if current_price > current_ma200:
+                trend_bias = 15  # Add 15 points for uptrend
+            
+            # Combined score (weighted average) with trend bias
+            combined_score = (rsi_score * 0.35 + mom_score * 0.25 + macd_score * 0.25 + trend_bias)
+            daily_scores.iloc[i] = min(100, max(0, combined_score))
             
         except Exception:
             daily_scores.iloc[i] = 50
@@ -285,7 +301,7 @@ def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL")
             elif row['RandomForest'] < -0.05:
                 rf_rec = "SELL"
         
-        # Calculate final recommendation using signal spread
+        # Calculate final recommendation using signal spread and ML probability
         buy_score_val = buy_score if pd.notna(buy_score) else 50
         sell_score_val = sell_score if pd.notna(sell_score) else 50
         
@@ -295,6 +311,14 @@ def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL")
         # Calculate confidence based on signal strength (0-1)
         confidence = min(abs(signal_strength) / 40, 1.0)
         
+        # Incorporate ML probability if available (from Q-Learner signal)
+        ml_bias = 0
+        if 'QLearnerSignal' in row and pd.notna(row['QLearnerSignal']):
+            if row['QLearnerSignal'] == "BUY":
+                ml_bias = 10  # Boost buy signal by 10 points
+            elif row['QLearnerSignal'] == "SELL":
+                ml_bias = -10  # Boost sell signal by -10 points
+        
         # Adjust signal based on market regime
         if market_regime == "BEAR":
             # Weaken buy signals in bear market
@@ -303,17 +327,23 @@ def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL")
             # Strengthen buy signals in bull market
             signal_strength *= 1.2
         
-        # Determine recommendation based on signal spread
-        if signal_strength > 30:
+        # Apply ML bias to final signal strength
+        final_signal_strength = signal_strength + ml_bias
+        
+        # Recalculate confidence based on final signal strength
+        confidence = min(abs(final_signal_strength) / 40, 1.0)
+        
+        # Determine recommendation based on final signal strength
+        if final_signal_strength > 30:
             final_rec = "STRONG BUY"
             action_to_check = "BUY"
-        elif signal_strength > 15:
+        elif final_signal_strength > 15:
             final_rec = "MODERATE BUY"
             action_to_check = "BUY"
-        elif signal_strength < -30:
+        elif final_signal_strength < -30:
             final_rec = "STRONG SELL"
             action_to_check = "SELL"
-        elif signal_strength < -15:
+        elif final_signal_strength < -15:
             final_rec = "MODERATE SELL"
             action_to_check = "SELL"
         else:
@@ -542,6 +572,21 @@ def analyze_portfolio(csv_path, analysis_months=None):
     print(f"SUMMARY RESULTS - LAST {analysis_months} MONTHS PERFORMANCE")
     print("=" * 60)
     print(results_df.to_string(index=False))
+    
+    # Print signal strength statistics
+    print("\n" + "=" * 60)
+    print("SIGNAL STRENGTH STATISTICS")
+    print("=" * 60)
+    results_df['SignalStrength'] = results_df['CurrentBuyScore'] - results_df['CurrentSellScore']
+    print(f"Mean: {results_df['SignalStrength'].mean():.2f}")
+    print(f"Std: {results_df['SignalStrength'].std():.2f}")
+    print(f"Min: {results_df['SignalStrength'].min():.2f}")
+    print(f"Max: {results_df['SignalStrength'].max():.2f}")
+    print(f"Strong Buy Signals (spread > 30): {(results_df['SignalStrength'] > 30).sum()}")
+    print(f"Moderate Buy Signals (spread 15-30): {((results_df['SignalStrength'] > 15) & (results_df['SignalStrength'] <= 30)).sum()}")
+    print(f"Strong Sell Signals (spread < -30): {(results_df['SignalStrength'] < -30).sum()}")
+    print(f"Moderate Sell Signals (spread -15 to -30): {((results_df['SignalStrength'] < -15) & (results_df['SignalStrength'] >= -30)).sum()}")
+    print(f"Hold Signals (spread -15 to 15): {((results_df['SignalStrength'] >= -15) & (results_df['SignalStrength'] <= 15)).sum()}")
     
     # Print predictions
     print_predictions(results_df, restrictions_df, market_regime)
