@@ -80,6 +80,53 @@ def compute_portfolio_value_from_trades(trades, prices, sv=100000):
     return portfolio_values
 
 
+def calculate_position_size(portfolio_value, current_price, confidence, max_weight=0.10):
+    """Calculate position size based on portfolio value, confidence, and weight limits."""
+    if current_price <= 0 or portfolio_value <= 0:
+        return 0
+    
+    # Calculate target position value based on confidence and max weight
+    target_weight = confidence * max_weight
+    target_value = portfolio_value * target_weight
+    
+    # Calculate number of shares
+    shares = int(target_value / current_price)
+    
+    return shares
+
+
+def check_trend_filter(prices, ma_period=200):
+    """Check if price is above moving average (trend filter)."""
+    if len(prices) < ma_period:
+        return True  # Allow trades if not enough data
+    
+    ma = prices.rolling(window=ma_period).mean().iloc[-1]
+    current_price = prices.iloc[-1]
+    
+    return current_price > ma
+
+
+def detect_market_regime(spy_prices, vix_value=None):
+    """Detect market regime using SPY and VIX."""
+    if len(spy_prices) < 200:
+        return "NEUTRAL"
+    
+    spy_ma200 = spy_prices.rolling(window=200).mean().iloc[-1]
+    current_spy = spy_prices.iloc[-1]
+    
+    # Default VIX if not provided
+    if vix_value is None:
+        vix_value = 20
+    
+    # Determine regime
+    if current_spy > spy_ma200 and vix_value < 25:
+        return "BULL"
+    elif current_spy < spy_ma200 and vix_value > 30:
+        return "BEAR"
+    else:
+        return "NEUTRAL"
+
+
 def calculate_daily_sell_scores(prices):
     """Calculate daily sell likelihood scores (0-100) based on indicators."""
     if prices is None or len(prices) < 30:
@@ -204,7 +251,7 @@ def print_predictions(results_df, restrictions_df=None):
     print("=" * 140)
     
     # Format the recommendations table
-    print(f"{'Symbol':<10} {'Shares':<10} {'Buy Score':<12} {'Sell Score':<12} {'Manual':<12} {'Q-Learner':<12} {'RandomForest':<12} {'Final Rec':<15} {'Restriction':<20}")
+    print(f"{'Symbol':<10} {'Shares':<10} {'Buy Score':<12} {'Sell Score':<12} {'Manual':<12} {'Q-Learner':<12} {'RandomForest':<12} {'Final Rec':<15} {'Conf':<5} {'Restriction':<20}")
     print("-" * 140)
     
     for idx, row in results_df.iterrows():
@@ -238,20 +285,35 @@ def print_predictions(results_df, restrictions_df=None):
             elif row['RandomForest'] < -0.05:
                 rf_rec = "SELL"
         
-        # Calculate final recommendation
-        buy_signal = buy_score > config.BUY_SCORE_THRESHOLD
-        sell_signal = sell_score > config.SELL_SCORE_THRESHOLD
+        # Calculate final recommendation using signal spread
+        buy_score_val = buy_score if pd.notna(buy_score) else 50
+        sell_score_val = sell_score if pd.notna(sell_score) else 50
         
-        if manual_rec == "BUY" and ql_rec == "BUY":
+        # Use signal spread instead of independent scores
+        signal_strength = buy_score_val - sell_score_val
+        
+        # Calculate confidence based on signal strength (0-1)
+        confidence = min(abs(signal_strength) / 40, 1.0)
+        
+        # Adjust signal based on market regime
+        if market_regime == "BEAR":
+            # Weaken buy signals in bear market
+            signal_strength *= 0.7
+        elif market_regime == "BULL":
+            # Strengthen buy signals in bull market
+            signal_strength *= 1.2
+        
+        # Determine recommendation based on signal spread
+        if signal_strength > 30:
             final_rec = "STRONG BUY"
             action_to_check = "BUY"
-        elif manual_rec == "SELL" and ql_rec == "SELL":
-            final_rec = "STRONG SELL"
-            action_to_check = "SELL"
-        elif buy_signal and manual_rec != "SELL":
+        elif signal_strength > 15:
             final_rec = "MODERATE BUY"
             action_to_check = "BUY"
-        elif sell_signal and manual_rec != "BUY":
+        elif signal_strength < -30:
+            final_rec = "STRONG SELL"
+            action_to_check = "SELL"
+        elif signal_strength < -15:
             final_rec = "MODERATE SELL"
             action_to_check = "SELL"
         else:
@@ -268,16 +330,17 @@ def print_predictions(results_df, restrictions_df=None):
                 restriction_status = "⚠️ VIOLATION"
                 print(f"⚠️ RESTRICTION WARNING for {symbol}: {message}")
         
-        print(f"{symbol:<10} {shares:<10.3f} {buy_score:>6.1f}/100   {sell_score:>6.1f}/100   {manual_rec:<12} {ql_rec:<12} {rf_rec:<12} {final_rec:<15} {restriction_status:<20}")
+        print(f"{symbol:<10} {shares:<10.3f} {buy_score:>6.1f}/100   {sell_score:>6.1f}/100   {manual_rec:<12} {ql_rec:<12} {rf_rec:<12} {final_rec:<15} {confidence:.2f} {restriction_status:<20}")
     
     print("=" * 140)
     print("📊 HYBRID RECOMMENDATION LOGIC:")
     print("   - Buy Score: 0-100 based on RSI, Momentum, MACD indicators (high = buy signal)")
     print("   - Sell Score: 0-100 based on RSI, Momentum, MACD indicators (high = sell signal)")
-    print("   - Manual Strategy: Based on recent 6-month performance")
-    print("   - Q-Learner: ML-based strategy (Score >65 = SELL, Score <35 = BUY)")
-    print("   - Random Forest: ML model trained on historical patterns (only if accuracy >55%)")
-    print("   - Final Rec: Weighted combination considering all factors")
+    print("   - Signal Spread: buy_score - sell_score (measures buy/sell signal disagreement)")
+    print("   - Confidence: abs(signal_strength) / 40 (0-1, higher = stronger signal)")
+    print("   - Market Regime: BULL/BEAR/NEUTRAL based on SPY MA200 and VIX")
+    print("   - Final Rec: Based on signal spread adjusted for market regime")
+    print("   - Position Sizing: Gradual scaling with portfolio weight caps (max 10% per position)")
     print("⚠️ IMPORTANT: 60-day trading restrictions apply to all recommendations")
     print("   - Cannot buy and sell at higher price within 60 days")
     print("   - Cannot sell and buy at lower price within 60 days")
@@ -323,6 +386,22 @@ def analyze_portfolio(csv_path, analysis_months=None):
     benchmark_return = calculate_benchmark_return(start_date, end_date)
     if benchmark_return:
         print(f"Benchmark (SPY) Return: {benchmark_return:.2%}")
+    
+    # Detect market regime
+    try:
+        import yfinance as yf
+        spy_ticker = yf.Ticker("SPY")
+        spy_hist = spy_ticker.history(period="1y")
+        if not spy_hist.empty:
+            spy_prices = spy_hist['Close']
+            market_regime = detect_market_regime(spy_prices)
+            print(f"Market Regime: {market_regime}")
+        else:
+            market_regime = "NEUTRAL"
+            print("Market Regime: NEUTRAL (unable to fetch SPY data)")
+    except Exception as e:
+        market_regime = "NEUTRAL"
+        print(f"Market Regime: NEUTRAL (error: {e})")
     
     # Store results
     results = []

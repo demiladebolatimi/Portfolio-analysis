@@ -13,11 +13,8 @@ from datetime import datetime
 import config
 
 
-def should_send_email(results_df, confidence_threshold=None):
+def should_send_email(results_df, confidence_threshold=65):
     """Check if email should be sent based on confidence levels."""
-    if confidence_threshold is None:
-        confidence_threshold = config.EMAIL_CONFIDENCE_THRESHOLD
-        
     for idx, row in results_df.iterrows():
         buy_score = row['CurrentBuyScore']
         sell_score = row['CurrentSellScore']
@@ -35,8 +32,7 @@ def send_email_report(results_df, subject, force_send=False):
     try:
         # Check if email should be sent based on confidence levels
         if not force_send and not should_send_email(results_df):
-            threshold = config.EMAIL_CONFIDENCE_THRESHOLD
-            print(f"📧 Email skipped - No high-confidence signals (>{threshold} or <{100-threshold}) detected")
+            print("📧 Email skipped - No high-confidence signals (>65 or <35) detected")
             return False
         # Load environment variables
         load_dotenv()
@@ -44,7 +40,6 @@ def send_email_report(results_df, subject, force_send=False):
         # Email configuration
         sender_email = config.EMAIL_SENDER
         receiver_email = config.EMAIL_RECEIVER
-        bcc_emails = config.EMAIL_BCC if config.EMAIL_BCC_ENABLED else []
         password = os.getenv('GMAIL_PASSWORD')
         
         if not password:
@@ -62,10 +57,6 @@ def send_email_report(results_df, subject, force_send=False):
         print("=" * 60)
         print(f"Sending from: {sender_email}")
         print(f"Sending to: {receiver_email}")
-        if bcc_emails:
-            print(f"BCC: {len(bcc_emails)} recipient(s) (hidden)")
-        else:
-            print("BCC: Disabled")
         print("✅ Using saved password from environment variables")
         
         # Create message
@@ -86,13 +77,14 @@ def send_email_report(results_df, subject, force_send=False):
             <table border="1" cellpadding="5" cellspacing="0">
                 <tr>
                     <th>Symbol</th>
+                    <th>Shares</th>
                     <th>BuyHold</th>
                     <th>Benchmark</th>
                     <th>Manual</th>
                     <th>Q-Learner</th>
                     <th>RandomForest</th>
-                    <th>Sell Score</th>
-                    <th>Buy Score</th>
+                    <th>CurrentSellScore</th>
+                    <th>CurrentBuyScore</th>
                 </tr>
         """
         
@@ -109,6 +101,7 @@ def send_email_report(results_df, subject, force_send=False):
             body += f"""
                 <tr>
                     <td>{row['Symbol']}</td>
+                    <td>{row['Shares']}</td>
                     <td>{buyhold_val}</td>
                     <td>{benchmark_val}</td>
                     <td>{manual_val}</td>
@@ -118,39 +111,6 @@ def send_email_report(results_df, subject, force_send=False):
                     <td>{buy_score_val}</td>
                 </tr>
             """
-        
-        body += """
-            </table>
-            
-            <h3>Position Sizing Recommendations</h3>
-            <table border="1" cellpadding="5" cellspacing="0">
-                <tr>
-                    <th>Symbol</th>
-                    <th>Recommendation</th>
-                    <th>Trade Size</th>
-                    <th>Gradual %</th>
-                    <th>Current Price</th>
-                </tr>
-        """
-        
-        # Add position sizing recommendations
-        for idx, row in results_df.iterrows():
-            if pd.notna(row.get('SharesToTrade')) and row['SharesToTrade'] > 0:
-                recommendation = row.get('Recommendation', 'HOLD')
-                shares_to_trade = row['SharesToTrade']
-                trade_action = row.get('TradeAction', 'HOLD')
-                gradual_pct = row.get('GradualPercentage', 1.0)
-                current_price = row.get('CurrentPrice', 0)
-                
-                body += f"""
-                    <tr>
-                        <td>{row['Symbol']}</td>
-                        <td>{recommendation}</td>
-                        <td>{trade_action} {shares_to_trade}</td>
-                        <td>{gradual_pct:.0%}</td>
-                        <td>${current_price:.2f}</td>
-                    </tr>
-                """
         
         body += """
             </table>
@@ -241,6 +201,85 @@ def send_email_report(results_df, subject, force_send=False):
         body += """
             </table>
             
+            <h3>Position Sizing Recommendations</h3>
+            <table border="1" cellpadding="5" cellspacing="0">
+                <tr>
+                    <th>Symbol</th>
+                    <th>Recommendation</th>
+                    <th>Confidence</th>
+                    <th>Target Weight</th>
+                    <th>Gradual Entry</th>
+                    <th>Current Price</th>
+                </tr>
+        """
+        
+        # Add position sizing recommendations with improved logic
+        for idx, row in results_df.iterrows():
+            buy_score = row['CurrentBuyScore'] if pd.notna(row['CurrentBuyScore']) else 50
+            sell_score = row['CurrentSellScore'] if pd.notna(row['CurrentSellScore']) else 50
+            
+            # Use signal spread instead of independent scores
+            signal_strength = buy_score - sell_score
+            
+            # Calculate confidence based on signal strength (0-1)
+            confidence = min(abs(signal_strength) / 40, 1.0)
+            
+            # Determine recommendation based on signal spread
+            if signal_strength > 30:
+                rec = "STRONG BUY"
+            elif signal_strength > 15:
+                rec = "MODERATE BUY"
+            elif signal_strength < -30:
+                rec = "STRONG SELL"
+            elif signal_strength < -15:
+                rec = "MODERATE SELL"
+            else:
+                rec = "HOLD"
+            
+            # Scale position size gradually based on signal strength
+            # 15 → ~17%, 20 → ~33%, 30 → ~50%, 40 → ~67%, 50+ → 100%
+            if signal_strength > 0:
+                raw_weight = min((signal_strength / 50) * 100, 100)
+            elif signal_strength < 0:
+                raw_weight = min((abs(signal_strength) / 50) * 100, 100)
+            else:
+                raw_weight = 0
+            
+            # Apply portfolio weight caps
+            if rec == "STRONG BUY":
+                target_weight = min(raw_weight * 0.1, 10)  # Max 10%
+            elif rec == "MODERATE BUY":
+                target_weight = min(raw_weight * 0.05, 5)  # Max 5%
+            elif rec == "STRONG SELL":
+                target_weight = min(raw_weight * 0.1, 10)  # Max 10% reduction
+            elif rec == "MODERATE SELL":
+                target_weight = min(raw_weight * 0.05, 5)  # Max 5% reduction
+            else:
+                target_weight = 0
+            
+            # Gradual entry/exit (25% increments)
+            gradual_entry = "25% increments"
+            
+            # Get current price (approximate from market value and shares)
+            if row['Shares'] > 0 and row['MarketValue'] > 0:
+                current_price = row['MarketValue'] / row['Shares']
+            else:
+                current_price = 0
+            
+            body += f"""
+                <tr>
+                    <td>{row['Symbol']}</td>
+                    <td>{rec}</td>
+                    <td>{confidence:.2f}</td>
+                    <td>{target_weight:.1f}%</td>
+                    <td>{gradual_entry}</td>
+                    <td>${current_price:.2f}</td>
+                </tr>
+            """
+        
+        body += """
+            </table>
+            
             <h3>Key Insights</h3>
             <ul>
                 <li>Buy & Hold: Passive portfolio performance</li>
@@ -248,6 +287,8 @@ def send_email_report(results_df, subject, force_send=False):
                 <li>Manual Strategy: Rule-based trading performance</li>
                 <li>Q-Learner: ML-based strategy (Score >65 = SELL, Score <35 = BUY)</li>
                 <li>Random Forest: ML model (only if accuracy >55%)</li>
+                <li>Position Sizing: Based on signal spread (buy_score - sell_score) with portfolio weight caps</li>
+                <li>Confidence: Measures strength of buy/sell signal disagreement (0-1)</li>
             </ul>
             
             <p>Charts are attached to this email for detailed analysis.</p>
@@ -262,7 +303,6 @@ def send_email_report(results_df, subject, force_send=False):
         chart_files = [
             'portfolio_comparison.png',
             'sell_likelihood_tracking.png',
-            'sell_likelihood_buckets.png',
             'sell_likelihood_heatmap.png',
             'buy_likelihood_heatmap.png'
         ]
@@ -281,11 +321,10 @@ def send_email_report(results_df, subject, force_send=False):
                     print(f"Attached: {chart_file}")
         
         # Send email
-        all_recipients = [receiver_email] + (bcc_emails if bcc_emails else [])
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(sender_email, password)
-        server.sendmail(sender_email, all_recipients, msg.as_string())
+        server.sendmail(sender_email, receiver_email, msg.as_string())
         server.quit()
         
         print("\n✅ Email sent successfully!")
