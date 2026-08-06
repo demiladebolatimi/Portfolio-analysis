@@ -93,9 +93,10 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
         else:
             train_vix = pd.Series([20] * len(train_prices), index=train_prices.index)  # Default VIX
         
-        # Create target variable: 1 if price goes up next day, 0 if goes down
-        train_returns = train_prices.pct_change().shift(-1)
-        train_target = (train_returns > 0).astype(int)
+        # Create target variable: 1 if price goes up >2% over next 5 days, 0 otherwise
+        # Changed from next-day direction to 5-day forward return with threshold
+        train_returns_5d = train_prices.pct_change(5).shift(-5)
+        train_target = (train_returns_5d > 0.02).astype(int)  # >2% gain over 5 days
         
         # Create feature DataFrame with all enhanced features
         train_features = pd.DataFrame({
@@ -200,6 +201,7 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
         
         # Print score statistics for debugging
         print(f"  Score statistics: mean={scores.mean():.1f}, min={scores.min():.1f}, max={scores.max():.1f}, std={scores.std():.1f}")
+        print(f"  Probability statistics: mean={predictions.mean():.3f}, min={predictions.min():.3f}, max={predictions.max():.3f}, std={predictions.std():.3f}")
         
         # Generate trades based on score thresholds with portfolio-based sizing
         trades = pd.DataFrame(index=test_prices.index, columns=["Trades"])
@@ -209,6 +211,8 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
         ma200 = test_prices.rolling(window=200).mean()
         
         curr = 0
+        trend_filter_blocks = 0
+        
         for i in range(len(test_prices)):
             if i >= len(scores) or pd.isna(scores[i]):
                 continue
@@ -227,7 +231,7 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
                     trades.iloc[i] = position_size - curr
                     curr = position_size
                 else:
-                    print(f"  Trend filter blocked BUY for {symbol} (price < MA200)")
+                    trend_filter_blocks += 1
             elif score < config.STRONG_BUY_THRESHOLD and curr < 1000:  # Score < 35 = SELL signal (was BUY)
                 # Portfolio-based sizing: 5-10% of portfolio value
                 position_size = int((sv * 0.05) / current_price)  # 5% position
@@ -237,7 +241,11 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
                 trades.iloc[i] = -curr
                 curr = 0
         
-        return trades
+        print(f"  Trend filter blocked {trend_filter_blocks} BUY signals")
+        
+        # Return trades and current probability
+        current_probability = predictions[-1] if len(predictions) > 0 else 0.5
+        return trades, current_probability
         
     except Exception as e:
         print(f"Error running Q-Learner for {symbol}: {e}")
@@ -321,9 +329,10 @@ def run_randomforest_strategy(symbol, start_date, end_date, sv=100000):
         else:
             train_vix = pd.Series([20] * len(train_prices), index=train_prices.index)  # Default VIX
         
-        # Create target variable: 1 if price goes up next day, 0 if goes down
-        train_returns = train_prices.pct_change().shift(-1)
-        train_target = (train_returns > 0).astype(int)
+        # Create target variable: 1 if price goes up >2% over next 5 days, 0 otherwise
+        # Changed from next-day direction to 5-day forward return with threshold
+        train_returns_5d = train_prices.pct_change(5).shift(-5)
+        train_target = (train_returns_5d > 0.02).astype(int)  # >2% gain over 5 days
         
         # Create feature DataFrame with all enhanced features
         train_features = pd.DataFrame({

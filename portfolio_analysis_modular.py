@@ -311,13 +311,12 @@ def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL")
         # Calculate confidence based on signal strength (0-1)
         confidence = min(abs(signal_strength) / 40, 1.0)
         
-        # Incorporate ML probability if available (from Q-Learner signal)
+        # Incorporate ML probability directly (increased weight from ±10 to ±20)
         ml_bias = 0
-        if 'QLearnerSignal' in row and pd.notna(row['QLearnerSignal']):
-            if row['QLearnerSignal'] == "BUY":
-                ml_bias = 10  # Boost buy signal by 10 points
-            elif row['QLearnerSignal'] == "SELL":
-                ml_bias = -10  # Boost sell signal by -10 points
+        if 'QLearnerProbability' in row and pd.notna(row['QLearnerProbability']):
+            # Convert probability (0-1) to bias (-20 to +20)
+            # Probability > 0.5 = bullish bias, < 0.5 = bearish bias
+            ml_bias = (row['QLearnerProbability'] - 0.5) * 40  # Max ±20 points
         
         # Adjust signal based on market regime
         if market_regime == "BEAR":
@@ -488,10 +487,17 @@ def analyze_portfolio(csv_path, analysis_months=None):
                 print(f"  Error in manual strategy: {e}")
             
             # Run Q-Learner Strategy
-            ql_trades = run_qlearner_strategy(symbol, start_date, end_date)
+            ql_result = run_qlearner_strategy(symbol, start_date, end_date)
             ql_return = None
             ql_signal = "HOLD"  # Current Q-Learner signal
-            if ql_trades is not None:
+            ql_probability = 0.5  # Current ML probability
+            
+            if ql_result is not None:
+                if isinstance(ql_result, tuple):
+                    ql_trades, ql_probability = ql_result
+                else:
+                    ql_trades = ql_result
+                
                 ql_portfolio = compute_portfolio_value_from_trades(ql_trades, prices)
                 if ql_portfolio is not None:
                     ql_return = (ql_portfolio.iloc[-1] - ql_portfolio.iloc[0]) / ql_portfolio.iloc[0]
@@ -505,6 +511,8 @@ def analyze_portfolio(csv_path, analysis_months=None):
                         ql_signal = "SELL"
                     else:
                         ql_signal = "HOLD"
+                    
+                    print(f"  Q-Learner Current Signal: {ql_signal} (Probability: {ql_probability:.2%})")
             else:
                 ql_return = None
             
@@ -549,13 +557,14 @@ def analyze_portfolio(csv_path, analysis_months=None):
                 'Symbol': symbol,
                 'Shares': shares,
                 'BuyHold': buy_hold_return,
-                'Benchmark': benchmark_return,
+                'Benchmark': benchmark_return if benchmark_return else 0,
                 'Manual': manual_return,
                 'QLearner': ql_return,
                 'QLearnerSignal': ql_signal,
+                'QLearnerProbability': ql_probability,
                 'RandomForest': rf_return,
-                'CurrentSellScore': current_sell_score if sell_scores is not None else None,
-                'CurrentBuyScore': current_buy_score if buy_scores is not None else None,
+                'CurrentSellScore': current_sell_score,
+                'CurrentBuyScore': current_buy_score,
                 'MarketValue': row['MarketValue']
             })
             
