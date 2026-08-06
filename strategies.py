@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import time
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, TimeSeriesSplit
 from sklearn.metrics import accuracy_score
 from datetime import datetime, timedelta
 
@@ -126,9 +126,10 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
             print(f"  Insufficient valid training data for {symbol} (got {len(train_features)} samples)")
             return None
         
-        # Train Random Forest model for Q-Learner (simplified approach)
+        # Train Random Forest model for Q-Learner with time-series validation
+        # Use shuffle=False to prevent look-ahead bias
         X_train, X_val, y_train, y_val = train_test_split(
-            train_features, train_target, test_size=0.2, random_state=42
+            train_features, train_target, test_size=0.2, random_state=42, shuffle=False
         )
         
         model = RandomForestClassifier(
@@ -186,29 +187,52 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
         })
         
         # Make predictions (probability of price going up)
-        predictions = model.predict_proba(test_features)[:, 1]
+        # Clean test data before prediction
+        test_features_clean = test_features.dropna()
+        if len(test_features_clean) == 0:
+            print(f"  No valid test features for {symbol}")
+            return None
+        
+        predictions = model.predict_proba(test_features_clean)[:, 1]
         
         # Convert predictions to 0-100 score
         scores = predictions * 100
         
-        # Generate trades based on score thresholds
+        # Print score statistics for debugging
+        print(f"  Score statistics: mean={scores.mean():.1f}, min={scores.min():.1f}, max={scores.max():.1f}, std={scores.std():.1f}")
+        
+        # Generate trades based on score thresholds with portfolio-based sizing
         trades = pd.DataFrame(index=test_prices.index, columns=["Trades"])
         trades["Trades"] = 0.0
         
+        # Calculate MA200 for trend filter
+        ma200 = test_prices.rolling(window=200).mean()
+        
         curr = 0
         for i in range(len(test_prices)):
-            if pd.isna(scores[i]):
+            if i >= len(scores) or pd.isna(scores[i]):
                 continue
             
             score = scores[i]
+            current_price = test_prices.iloc[i]
+            current_ma200 = ma200.iloc[i] if i < len(ma200) else current_price
             
-            # Trading strategy based on score thresholds
-            if score > config.STRONG_SELL_THRESHOLD and curr > -1000:  # Score > 65 = SELL signal
-                trades.iloc[i] = -1000 - curr
-                curr = -1000
-            elif score < config.STRONG_BUY_THRESHOLD and curr < 1000:  # Score < 35 = BUY signal
-                trades.iloc[i] = 1000 - curr
-                curr = 1000
+            # FIXED: High score = high probability of price going up = BUY
+            # Low score = low probability of price going up = SELL
+            if score > config.STRONG_SELL_THRESHOLD and curr > -1000:  # Score > 65 = BUY signal (was SELL)
+                # Apply trend filter: only buy if price > MA200
+                if current_price > current_ma200:
+                    # Portfolio-based sizing: 5-10% of portfolio value
+                    position_size = int((sv * 0.05) / current_price)  # 5% position
+                    trades.iloc[i] = position_size - curr
+                    curr = position_size
+                else:
+                    print(f"  Trend filter blocked BUY for {symbol} (price < MA200)")
+            elif score < config.STRONG_BUY_THRESHOLD and curr < 1000:  # Score < 35 = SELL signal (was BUY)
+                # Portfolio-based sizing: 5-10% of portfolio value
+                position_size = int((sv * 0.05) / current_price)  # 5% position
+                trades.iloc[i] = -position_size - curr
+                curr = -position_size
             elif config.NEUTRAL_RANGE[0] <= score <= config.NEUTRAL_RANGE[1] and curr != 0:  # Neutral range = HOLD
                 trades.iloc[i] = -curr
                 curr = 0
@@ -330,9 +354,9 @@ def run_randomforest_strategy(symbol, start_date, end_date, sv=100000):
             print(f"  Insufficient valid training data for {symbol} (got {len(train_features)} samples)")
             return None, None, None
         
-        # Train Random Forest model
+        # Train Random Forest model with time-series validation
         X_train, X_val, y_train, y_val = train_test_split(
-            train_features, train_target, test_size=0.2, random_state=42
+            train_features, train_target, test_size=0.2, random_state=42, shuffle=False
         )
         
         model = RandomForestClassifier(
@@ -393,27 +417,43 @@ def run_randomforest_strategy(symbol, start_date, end_date, sv=100000):
             'VIX': test_vix
         })
         
-        # Make predictions
-        predictions = model.predict_proba(test_features)[:, 1]
+        # Make predictions with cleaned test data
+        test_features_clean = test_features.dropna()
+        if len(test_features_clean) == 0:
+            print(f"  No valid test features for {symbol}")
+            return None, None, None
         
-        # Generate trades based on predictions
+        predictions = model.predict_proba(test_features_clean)[:, 1]
+        
+        # Generate trades based on predictions with portfolio-based sizing
         trades = pd.DataFrame(index=test_prices.index, columns=["Trades"])
         trades["Trades"] = 0.0
         
+        # Calculate MA200 for trend filter
+        ma200 = test_prices.rolling(window=200).mean()
+        
         curr = 0
         for i in range(len(test_prices)):
-            if pd.isna(predictions[i]):
+            if i >= len(predictions) or pd.isna(predictions[i]):
                 continue
             
             pred = predictions[i]
+            current_price = test_prices.iloc[i]
+            current_ma200 = ma200.iloc[i] if i < len(ma200) else current_price
             
-            # Trading strategy based on prediction confidence
+            # FIXED: High prediction = high probability of price going up = BUY
             if pred > 0.6 and curr < 1000:  # Strong buy signal
-                trades.iloc[i] = 1000 - curr
-                curr = 1000
+                # Apply trend filter: only buy if price > MA200
+                if current_price > current_ma200:
+                    # Portfolio-based sizing: 5% of portfolio value
+                    position_size = int((sv * 0.05) / current_price)
+                    trades.iloc[i] = position_size - curr
+                    curr = position_size
             elif pred < 0.4 and curr > -1000:  # Strong sell signal
-                trades.iloc[i] = -1000 - curr
-                curr = -1000
+                # Portfolio-based sizing: 5% of portfolio value
+                position_size = int((sv * 0.05) / current_price)
+                trades.iloc[i] = -position_size - curr
+                curr = -position_size
             elif 0.4 <= pred <= 0.6 and curr != 0:  # Neutral range
                 trades.iloc[i] = -curr
                 curr = 0
