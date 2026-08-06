@@ -225,11 +225,8 @@ def print_predictions(results_df, restrictions_df=None):
         
         # Get Q-Learner recommendation
         ql_rec = "HOLD"
-        if pd.notna(row['QLearner']):
-            if row['QLearner'] > 0.05:
-                ql_rec = "BUY"
-            elif row['QLearner'] < -0.05:
-                ql_rec = "SELL"
+        if 'QLearnerSignal' in row and pd.notna(row['QLearnerSignal']):
+            ql_rec = row['QLearnerSignal']
         else:
             ql_rec = "N/A"
         
@@ -384,11 +381,21 @@ def analyze_portfolio(csv_path, analysis_months=None):
             # Run Q-Learner Strategy
             ql_trades = run_qlearner_strategy(symbol, start_date, end_date)
             ql_return = None
+            ql_signal = "HOLD"  # Current Q-Learner signal
             if ql_trades is not None:
                 ql_portfolio = compute_portfolio_value_from_trades(ql_trades, prices)
                 if ql_portfolio is not None:
                     ql_return = (ql_portfolio.iloc[-1] - ql_portfolio.iloc[0]) / ql_portfolio.iloc[0]
                     print(f"  Q-Learner Strategy Return: {ql_return:.2%}")
+                    
+                    # Get current signal from last trade
+                    last_trade = ql_trades.iloc[-1]['Trades'] if len(ql_trades) > 0 else 0
+                    if last_trade > 0:
+                        ql_signal = "BUY"
+                    elif last_trade < 0:
+                        ql_signal = "SELL"
+                    else:
+                        ql_signal = "HOLD"
             else:
                 ql_return = None
             
@@ -436,6 +443,7 @@ def analyze_portfolio(csv_path, analysis_months=None):
                 'Benchmark': benchmark_return,
                 'Manual': manual_return,
                 'QLearner': ql_return,
+                'QLearnerSignal': ql_signal,
                 'RandomForest': rf_return,
                 'CurrentSellScore': current_sell_score if sell_scores is not None else None,
                 'CurrentBuyScore': current_buy_score if buy_scores is not None else None,
