@@ -27,7 +27,7 @@ def should_send_email(results_df, confidence_threshold=65):
     return False
 
 
-def send_email_report(results_df, subject, force_send=False):
+def send_email_report(results_df, subject, force_send=False, market_regime="NEUTRAL"):
     """Send portfolio analysis results and charts via email only if confidence levels are high."""
     try:
         # Check if email should be sent based on confidence levels
@@ -72,6 +72,7 @@ def send_email_report(results_df, subject, force_send=False):
             <h2>Portfolio Analysis Report - {datetime.now().strftime('%Y-%m-%d')}</h2>
             <p>Analysis period: Last 6 months (126 trading days)</p>
             <p>Training data: 5 years historical data</p>
+            <p><strong>Market Regime: {market_regime}</strong></p>
             
             <h3>Summary Results</h3>
             <table border="1" cellpadding="5" cellspacing="0">

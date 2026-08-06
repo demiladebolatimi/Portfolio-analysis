@@ -244,7 +244,7 @@ def calculate_signal_trend(scores, window=5):
         return "Strongly Decreasing"
 
 
-def print_predictions(results_df, restrictions_df=None):
+def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL"):
     """Print hybrid trading recommendations with restriction checks."""
     print("\n" + "=" * 140)
     print("HYBRID TRADING RECOMMENDATIONS FOR NEXT MONTH")
@@ -544,13 +544,13 @@ def analyze_portfolio(csv_path, analysis_months=None):
     print(results_df.to_string(index=False))
     
     # Print predictions
-    print_predictions(results_df, restrictions_df)
+    print_predictions(results_df, restrictions_df, market_regime)
     
     # Send email report
     print("\n" + "=" * 60)
     print("SENDING EMAIL REPORT")
     print("=" * 60)
-    email_sent = send_email_report(results_df, subject=f"Portfolio Analysis Report - {datetime.now().strftime('%Y-%m-%d')}")
+    email_sent = send_email_report(results_df, subject=f"Portfolio Analysis Report - {datetime.now().strftime('%Y-%m-%d')}", force_send=True, market_regime=market_regime)
     
     if email_sent:
         print("✅ Portfolio analysis complete with email report sent!")
