@@ -267,7 +267,7 @@ def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL")
     print("=" * 140)
     
     # Format the recommendations table
-    print(f"{'Symbol':<10} {'Shares':<10} {'Buy Score':<12} {'Sell Score':<12} {'Manual':<12} {'Q-Learner':<12} {'RandomForest':<12} {'Final Rec':<15} {'Conf':<5} {'Restriction':<20}")
+    print(f"{'Symbol':<10} {'Cur Shares':<12} {'Target Shares':<14} {'Buy Score':<12} {'Sell Score':<12} {'Final Rec':<15} {'Conf':<5} {'Restriction':<20}")
     print("-" * 140)
     
     for idx, row in results_df.iterrows():
@@ -349,6 +349,45 @@ def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL")
             final_rec = "HOLD"
             action_to_check = "HOLD"
         
+        # Calculate target shares based on portfolio value and target weight
+        total_portfolio_value = results_df['MarketValue'].sum()
+        current_price = row['MarketValue'] / row['Shares'] if row['Shares'] > 0 else 0
+        
+        # Calculate target weight based on final signal strength
+        if final_signal_strength > 30:
+            target_weight = min(10, abs(final_signal_strength) / 50 * 10)  # Max 10%
+        elif final_signal_strength > 15:
+            target_weight = min(5, abs(final_signal_strength) / 50 * 5)  # Max 5%
+        elif final_signal_strength < -30:
+            target_weight = min(10, abs(final_signal_strength) / 50 * 10)  # Max 10% reduction
+        elif final_signal_strength < -15:
+            target_weight = min(5, abs(final_signal_strength) / 50 * 5)  # Max 5% reduction
+        else:
+            target_weight = 0
+        
+        # Calculate target shares
+        if total_portfolio_value > 0 and current_price > 0 and target_weight > 0:
+            target_value = total_portfolio_value * (target_weight / 100)
+            target_shares = int(target_value / current_price)
+        else:
+            target_shares = 0
+        
+        # Get current shares
+        current_shares = int(row['Shares']) if pd.notna(row['Shares']) else 0
+        
+        # Adjust recommendation based on current position vs target
+        # If already at or above target, downgrade recommendation
+        if current_shares >= target_shares and final_rec in ["STRONG BUY", "MODERATE BUY"]:
+            if final_rec == "STRONG BUY":
+                final_rec = "MODERATE BUY"
+            elif final_rec == "MODERATE BUY":
+                final_rec = "HOLD"
+        # If significantly below target, upgrade recommendation
+        elif current_shares < target_shares * 0.5 and final_rec == "HOLD":
+            final_rec = "MODERATE BUY"
+        elif current_shares < target_shares * 0.25 and final_rec in ["HOLD", "MODERATE BUY"]:
+            final_rec = "STRONG BUY"
+        
         # Check trading restrictions
         restriction_status = "OK"
         if restrictions_df is not None and action_to_check in ["BUY", "SELL"]:
@@ -359,7 +398,7 @@ def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL")
                 restriction_status = "⚠️ VIOLATION"
                 print(f"⚠️ RESTRICTION WARNING for {symbol}: {message}")
         
-        print(f"{symbol:<10} {shares:<10.3f} {buy_score:>6.1f}/100   {sell_score:>6.1f}/100   {manual_rec:<12} {ql_rec:<12} {rf_rec:<12} {final_rec:<15} {confidence:.2f} {restriction_status:<20}")
+        print(f"{symbol:<10} {current_shares:<12} {target_shares:<14} {buy_score:>6.1f}/100   {sell_score:>6.1f}/100   {final_rec:<15} {confidence:.2f} {restriction_status:<20}")
     
     print("=" * 140)
     print("📊 HYBRID RECOMMENDATION LOGIC:")

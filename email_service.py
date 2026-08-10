@@ -209,6 +209,8 @@ def send_email_report(results_df, subject, force_send=False, market_regime="NEUT
                     <th>Recommendation</th>
                     <th>Confidence</th>
                     <th>Target Weight</th>
+                    <th>Target Shares</th>
+                    <th>Current Shares</th>
                     <th>Gradual Entry</th>
                     <th>Current Price</th>
                 </tr>
@@ -267,12 +269,38 @@ def send_email_report(results_df, subject, force_send=False, market_regime="NEUT
             else:
                 current_price = 0
             
+            # Calculate target shares based on portfolio value and target weight
+            total_portfolio_value = results_df['MarketValue'].sum()
+            if total_portfolio_value > 0 and current_price > 0:
+                target_value = total_portfolio_value * (target_weight / 100)
+                target_shares = int(target_value / current_price)
+            else:
+                target_shares = 0
+            
+            # Get current shares
+            current_shares = int(row['Shares']) if pd.notna(row['Shares']) else 0
+            
+            # Adjust recommendation based on current position vs target
+            # If already at or above target, downgrade recommendation
+            if current_shares >= target_shares and rec in ["STRONG BUY", "MODERATE BUY"]:
+                if rec == "STRONG BUY":
+                    rec = "MODERATE BUY"
+                elif rec == "MODERATE BUY":
+                    rec = "HOLD"
+            # If significantly below target, upgrade recommendation
+            elif current_shares < target_shares * 0.5 and rec == "HOLD":
+                rec = "MODERATE BUY"
+            elif current_shares < target_shares * 0.25 and rec in ["HOLD", "MODERATE BUY"]:
+                rec = "STRONG BUY"
+            
             body += f"""
                 <tr>
                     <td>{row['Symbol']}</td>
                     <td>{rec}</td>
                     <td>{confidence:.2f}</td>
                     <td>{target_weight:.1f}%</td>
+                    <td>{target_shares}</td>
+                    <td>{current_shares}</td>
                     <td>{gradual_entry}</td>
                     <td>${current_price:.2f}</td>
                 </tr>
