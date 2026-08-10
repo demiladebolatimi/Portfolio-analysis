@@ -152,7 +152,7 @@ def generate_trades_from_signals(prices, symbol, start_date, end_date, initial_v
         if not spy_hist.empty:
             spy_analysis = spy_hist[(spy_hist.index >= analysis_start) & (spy_hist.index <= analysis_end)]
             if not spy_analysis.empty:
-                rs = calculate_relative_strength(prices_analysis, spy_analysis['Close'])
+                rs = calculate_relative_strength(prices_analysis, spy_analysis['Close'], window=120)
                 market_regime = calculate_market_regime(spy_analysis['Close'])
             else:
                 rs = pd.Series(50, index=prices_analysis.index)
