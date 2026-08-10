@@ -333,37 +333,48 @@ def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL")
         confidence = min(abs(final_signal_strength) / 40, 1.0)
         
         # Determine recommendation based on final signal strength
-        if final_signal_strength > 30:
+        if final_signal_strength > 20:  # Increased from 15 to 20
             final_rec = "STRONG BUY"
             action_to_check = "BUY"
-        elif final_signal_strength > 15:
+        elif final_signal_strength > 10:  # Increased from 15 to 10 (moderate buy range 10-20)
             final_rec = "MODERATE BUY"
             action_to_check = "BUY"
-        elif final_signal_strength < -30:
+        elif final_signal_strength < -20:  # Increased from -15 to -20
             final_rec = "STRONG SELL"
             action_to_check = "SELL"
-        elif final_signal_strength < -15:
+        elif final_signal_strength < -10:  # Increased from -15 to -10 (moderate sell range -20 to -10)
             final_rec = "MODERATE SELL"
             action_to_check = "SELL"
         else:
             final_rec = "HOLD"
             action_to_check = "HOLD"
         
-        # Calculate target shares based on portfolio value and target weight
+        # Calculate target weight using portfolio rebalancing logic
+        # Start with current weight and adjust based on signal strength
         total_portfolio_value = results_df['MarketValue'].sum()
         current_price = row['MarketValue'] / row['Shares'] if row['Shares'] > 0 else 0
         
-        # Calculate target weight based on final signal strength
-        if final_signal_strength > 30:
-            target_weight = min(10, abs(final_signal_strength) / 50 * 10)  # Max 10%
-        elif final_signal_strength > 15:
-            target_weight = min(5, abs(final_signal_strength) / 50 * 5)  # Max 5%
-        elif final_signal_strength < -30:
-            target_weight = min(10, abs(final_signal_strength) / 50 * 10)  # Max 10% reduction
-        elif final_signal_strength < -15:
-            target_weight = min(5, abs(final_signal_strength) / 50 * 5)  # Max 5% reduction
+        if total_portfolio_value > 0:
+            current_weight = (row['MarketValue'] / total_portfolio_value) * 100
         else:
-            target_weight = 0
+            current_weight = 0
+        
+        # Calculate adjustment based on signal strength
+        if final_signal_strength > 20:  # STRONG BUY
+            adjustment = min(5, abs(final_signal_strength) / 50 * 5)  # Add up to 5%
+            target_weight = min(current_weight + adjustment, 10)  # Max 10%
+        elif final_signal_strength > 10:  # MODERATE BUY
+            adjustment = min(2.5, abs(final_signal_strength) / 50 * 2.5)  # Add up to 2.5%
+            target_weight = min(current_weight + adjustment, 5)  # Max 5%
+        elif final_signal_strength < -20:  # STRONG SELL
+            adjustment = min(5, abs(final_signal_strength) / 50 * 5)  # Reduce up to 5%
+            target_weight = max(current_weight - adjustment, 0)  # Min 0%
+        elif final_signal_strength < -10:  # MODERATE SELL
+            adjustment = min(2.5, abs(final_signal_strength) / 50 * 2.5)  # Reduce up to 2.5%
+            target_weight = max(current_weight - adjustment, 0)  # Min 0%
+        else:
+            # HOLD: maintain current position weight
+            target_weight = current_weight
         
         # Calculate target shares
         if total_portfolio_value > 0 and current_price > 0 and target_weight > 0:
@@ -506,17 +517,31 @@ def analyze_portfolio(csv_path, analysis_months=None):
             manual_return = None
             try:
                 # Simple manual strategy: buy when RSI < 30, sell when RSI > 70
+                # Use portfolio-based sizing instead of fixed 1000 shares
                 rsi = calculate_rsi(prices, window=14)
                 trades = pd.DataFrame(index=prices.index, columns=["Trades"])
                 trades["Trades"] = 0.0
                 
+                curr = 0
                 for i in range(len(prices)):
-                    if i < 14:
+                    if i < 14 or pd.isna(rsi.iloc[i]):
                         continue
-                    if rsi.iloc[i] < 30 and trades.iloc[i-1, 0] == 0:
-                        trades.iloc[i, 0] = 1000
-                    elif rsi.iloc[i] > 70 and trades.iloc[i-1, 0] != 0:
-                        trades.iloc[i, 0] = -1000
+                    
+                    rsi_val = rsi.iloc[i]
+                    current_price = prices.iloc[i]
+                    
+                    # Portfolio-based sizing: 5% of portfolio value
+                    position_size = int((sv * 0.05) / current_price)
+                    
+                    if rsi_val < 30 and curr < position_size:  # Oversold = BUY
+                        trades.iloc[i] = position_size - curr
+                        curr = position_size
+                    elif rsi_val > 70 and curr > -position_size:  # Overbought = SELL
+                        trades.iloc[i] = -position_size - curr
+                        curr = -position_size
+                    elif 30 <= rsi_val <= 70 and curr != 0:  # Neutral = HOLD
+                        trades.iloc[i] = -curr
+                        curr = 0
                 
                 portfolio_value = compute_portfolio_value_from_trades(trades, prices)
                 if portfolio_value is not None:

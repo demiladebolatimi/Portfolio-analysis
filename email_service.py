@@ -211,6 +211,7 @@ def send_email_report(results_df, subject, force_send=False, market_regime="NEUT
                     <th>Target Weight</th>
                     <th>Target Shares</th>
                     <th>Current Shares</th>
+                    <th>Action</th>
                     <th>Gradual Entry</th>
                     <th>Current Price</th>
                 </tr>
@@ -228,37 +229,40 @@ def send_email_report(results_df, subject, force_send=False, market_regime="NEUT
             confidence = min(abs(signal_strength) / 40, 1.0)
             
             # Determine recommendation based on signal spread
-            if signal_strength > 30:
+            if signal_strength > 20:  # Increased from 15 to 20
                 rec = "STRONG BUY"
-            elif signal_strength > 15:
+            elif signal_strength > 10:  # Increased from 15 to 10
                 rec = "MODERATE BUY"
-            elif signal_strength < -30:
+            elif signal_strength < -20:  # Increased from -15 to -20
                 rec = "STRONG SELL"
-            elif signal_strength < -15:
+            elif signal_strength < -10:  # Increased from -15 to -10
                 rec = "MODERATE SELL"
             else:
                 rec = "HOLD"
             
-            # Scale position size gradually based on signal strength
-            # 15 → ~17%, 20 → ~33%, 30 → ~50%, 40 → ~67%, 50+ → 100%
-            if signal_strength > 0:
-                raw_weight = min((signal_strength / 50) * 100, 100)
-            elif signal_strength < 0:
-                raw_weight = min((abs(signal_strength) / 50) * 100, 100)
+            # Calculate target weight using portfolio rebalancing logic
+            total_portfolio_value = results_df['MarketValue'].sum()
+            if total_portfolio_value > 0:
+                current_weight = (row['MarketValue'] / total_portfolio_value) * 100
             else:
-                raw_weight = 0
+                current_weight = 0
             
-            # Apply portfolio weight caps
-            if rec == "STRONG BUY":
-                target_weight = min(raw_weight * 0.1, 10)  # Max 10%
-            elif rec == "MODERATE BUY":
-                target_weight = min(raw_weight * 0.05, 5)  # Max 5%
-            elif rec == "STRONG SELL":
-                target_weight = min(raw_weight * 0.1, 10)  # Max 10% reduction
-            elif rec == "MODERATE SELL":
-                target_weight = min(raw_weight * 0.05, 5)  # Max 5% reduction
+            # Calculate adjustment based on signal strength
+            if signal_strength > 20:  # STRONG BUY
+                adjustment = min(5, abs(signal_strength) / 50 * 5)  # Add up to 5%
+                target_weight = min(current_weight + adjustment, 10)  # Max 10%
+            elif signal_strength > 10:  # MODERATE BUY
+                adjustment = min(2.5, abs(signal_strength) / 50 * 2.5)  # Add up to 2.5%
+                target_weight = min(current_weight + adjustment, 5)  # Max 5%
+            elif signal_strength < -20:  # STRONG SELL
+                adjustment = min(5, abs(signal_strength) / 50 * 5)  # Reduce up to 5%
+                target_weight = max(current_weight - adjustment, 0)  # Min 0%
+            elif signal_strength < -10:  # MODERATE SELL
+                adjustment = min(2.5, abs(signal_strength) / 50 * 2.5)  # Reduce up to 2.5%
+                target_weight = max(current_weight - adjustment, 0)  # Min 0%
             else:
-                target_weight = 0
+                # HOLD: maintain current position weight
+                target_weight = current_weight
             
             # Gradual entry/exit (25% increments)
             gradual_entry = "25% increments"
@@ -279,6 +283,15 @@ def send_email_report(results_df, subject, force_send=False, market_regime="NEUT
             
             # Get current shares
             current_shares = int(row['Shares']) if pd.notna(row['Shares']) else 0
+            
+            # Calculate shares to buy/sell
+            shares_action = target_shares - current_shares
+            if shares_action > 0:
+                action_text = f"Buy {shares_action}"
+            elif shares_action < 0:
+                action_text = f"Sell {abs(shares_action)}"
+            else:
+                action_text = "Hold"
             
             # Adjust recommendation based on current position vs target
             # If already at or above target, downgrade recommendation
@@ -301,6 +314,7 @@ def send_email_report(results_df, subject, force_send=False, market_regime="NEUT
                     <td>{target_weight:.1f}%</td>
                     <td>{target_shares}</td>
                     <td>{current_shares}</td>
+                    <td>{action_text}</td>
                     <td>{gradual_entry}</td>
                     <td>${current_price:.2f}</td>
                 </tr>
