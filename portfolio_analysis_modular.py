@@ -13,9 +13,10 @@ from portfolio_manager import (
     check_trading_restrictions, update_trading_restriction
 )
 from strategies import run_qlearner_strategy, run_randomforest_strategy
+from signal_engine import compute_indicator_frame, compute_signal_scores, describe_signal
 from email_service import send_email_report
 from technical_indicators import (
-    calculate_rsi, calculate_momentum, calculate_macd
+    calculate_rsi
 )
 
 
@@ -127,137 +128,20 @@ def detect_market_regime(spy_prices, vix_value=None):
         return "NEUTRAL"
 
 
-def calculate_daily_sell_scores(prices):
-    """Calculate daily sell likelihood scores (0-100) based on indicators with trend bias."""
-    if prices is None or len(prices) < 30:
-        return None
-    
-    # Calculate indicators
-    rsi_values = calculate_rsi(prices, window=14)
-    mom_values = calculate_momentum(prices, window=14)
-    macd_values = calculate_macd(prices)
-    ma200 = prices.rolling(window=200).mean()
-    
-    daily_scores = pd.Series(index=prices.index, dtype=float)
-    
-    for i in range(len(prices)):
+def fetch_signal_context():
+    """Fetch SPY, VIX and VIX3M closes shared by every symbol's composite signal."""
+    import yfinance as yf
+    context = {}
+    for key, ticker in [('spy_close', 'SPY'), ('vix_close', '^VIX'), ('vix3m_close', '^VIX3M')]:
         try:
-            if i < 14:  # Need enough data for indicators
-                daily_scores.iloc[i] = 50  # Neutral
-                continue
-                
-            rsi_val = rsi_values.iloc[i] if i < len(rsi_values) else None
-            mom_val = mom_values.iloc[i] if i < len(mom_values) else None
-            macd_val = macd_values.iloc[i] if i < len(macd_values) else None
-            current_price = prices.iloc[i]
-            current_ma200 = ma200.iloc[i] if i < len(ma200) else current_price
-            
-            if pd.isna(rsi_val) or pd.isna(mom_val) or pd.isna(macd_val):
-                daily_scores.iloc[i] = 50
-                continue
-            
-            # Calculate individual sell signals (0-100 scale)
-            # RSI: >70 = high sell score, <30 = low sell score
-            rsi_score = min(100, max(0, (rsi_val - 30) / 40 * 100))  # 30->0%, 70->100%
-            
-            # Momentum: positive = lower sell score, negative = higher sell score
-            mom_score = min(100, max(0, (0.05 - mom_val) / 0.10 * 100))  # +5% -> 0%, -5% -> 100%
-            
-            # MACD: positive = lower sell score, negative = higher sell score
-            macd_score = min(100, max(0, (0 - macd_val) / 2 * 100))  # +2 -> 0%, -2 -> 100%
-            
-            # Trend bias: boost sell score if price < MA200 (downtrend)
-            trend_bias = 0
-            if current_price < current_ma200:
-                trend_bias = 15  # Add 15 points for downtrend
-            
-            # Combined score (weighted average) with trend bias
-            combined_score = (rsi_score * 0.35 + mom_score * 0.25 + macd_score * 0.25 + trend_bias)
-            daily_scores.iloc[i] = min(100, max(0, combined_score))
-            
-        except Exception:
-            daily_scores.iloc[i] = 50
-    
-    return daily_scores
-
-
-def calculate_daily_buy_scores(prices):
-    """Calculate daily buy likelihood scores (0-100) based on indicators with trend bias."""
-    if prices is None or len(prices) < 30:
-        return None
-    
-    # Calculate indicators
-    rsi_values = calculate_rsi(prices, window=14)
-    mom_values = calculate_momentum(prices, window=14)
-    macd_values = calculate_macd(prices)
-    ma200 = prices.rolling(window=200).mean()
-    
-    daily_scores = pd.Series(index=prices.index, dtype=float)
-    
-    for i in range(len(prices)):
-        try:
-            if i < 14:  # Need enough data for indicators
-                daily_scores.iloc[i] = 50  # Neutral
-                continue
-                
-            rsi_val = rsi_values.iloc[i] if i < len(rsi_values) else None
-            mom_val = mom_values.iloc[i] if i < len(mom_values) else None
-            macd_val = macd_values.iloc[i] if i < len(macd_values) else None
-            current_price = prices.iloc[i]
-            current_ma200 = ma200.iloc[i] if i < len(ma200) else current_price
-            
-            if pd.isna(rsi_val) or pd.isna(mom_val) or pd.isna(macd_val):
-                daily_scores.iloc[i] = 50
-                continue
-            
-            # Calculate individual buy signals (0-100 scale)
-            # RSI: <30 = high buy score, >70 = low buy score
-            rsi_score = min(100, max(0, (70 - rsi_val) / 40 * 100))  # 70->0%, 30->100%
-            
-            # Momentum: positive = higher buy score, negative = lower buy score
-            mom_score = min(100, max(0, (mom_val + 0.05) / 0.10 * 100))  # -5% -> 0%, +5% -> 100%
-            
-            # MACD: positive = higher buy score, negative = lower buy score
-            macd_score = min(100, max(0, (macd_val + 2) / 4 * 100))  # -2 -> 0%, +2 -> 100%
-            
-            # Trend bias: boost buy score if price > MA200 (uptrend)
-            trend_bias = 0
-            if current_price > current_ma200:
-                trend_bias = 15  # Add 15 points for uptrend
-            
-            # Combined score (weighted average) with trend bias
-            combined_score = (rsi_score * 0.35 + mom_score * 0.25 + macd_score * 0.25 + trend_bias)
-            daily_scores.iloc[i] = min(100, max(0, combined_score))
-            
-        except Exception:
-            daily_scores.iloc[i] = 50
-    
-    return daily_scores
-
-
-def calculate_signal_trend(scores, window=5):
-    """Calculate signal trend over recent days."""
-    if scores is None or len(scores) < window:
-        return "Insufficient Data"
-    
-    recent_scores = scores.tail(window)
-    
-    if len(recent_scores) < 2:
-        return "Insufficient Data"
-    
-    # Calculate trend
-    slope = (recent_scores.iloc[-1] - recent_scores.iloc[0]) / len(recent_scores)
-    
-    if slope > 2:
-        return "Strongly Increasing"
-    elif slope > 0.5:
-        return "Increasing"
-    elif slope > -0.5:
-        return "Stable"
-    elif slope > -2:
-        return "Decreasing"
-    else:
-        return "Strongly Decreasing"
+            time.sleep(0.3)
+            context[key] = yf.Ticker(ticker).history(period=f"{config.HISTORY_DAYS}d")['Close']
+        except Exception as e:
+            print(f"  Could not fetch {ticker}: {e}")
+            context[key] = None
+    if context['spy_close'] is None or context['spy_close'].empty:
+        raise RuntimeError("SPY data is required for the composite signal")
+    return context
 
 
 def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL"):
@@ -317,14 +201,6 @@ def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL")
             # Convert probability (0-1) to bias (-20 to +20)
             # Probability > 0.5 = bullish bias, < 0.5 = bearish bias
             ml_bias = (row['QLearnerProbability'] - 0.5) * 40  # Max ±20 points
-        
-        # Adjust signal based on market regime
-        if market_regime == "BEAR":
-            # Weaken buy signals in bear market
-            signal_strength *= 0.7
-        elif market_regime == "BULL":
-            # Strengthen buy signals in bull market
-            signal_strength *= 1.2
         
         # Apply ML bias to final signal strength
         final_signal_strength = signal_strength + ml_bias
@@ -413,12 +289,13 @@ def print_predictions(results_df, restrictions_df=None, market_regime="NEUTRAL")
     
     print("=" * 140)
     print("📊 HYBRID RECOMMENDATION LOGIC:")
-    print("   - Buy Score: 0-100 based on RSI, Momentum, MACD indicators (high = buy signal)")
-    print("   - Sell Score: 0-100 based on RSI, Momentum, MACD indicators (high = sell signal)")
-    print("   - Signal Spread: buy_score - sell_score (measures buy/sell signal disagreement)")
+    print("   - Buy Score: 0-100 composite of trend, relative strength vs SPY, volume (CMF/OBV),")
+    print("     plus buy-side-only pullback and VIX term-structure components (see signal_engine.py)")
+    print("   - Sell Score: 100 - Buy Score")
+    print("   - Signal Spread: buy_score - sell_score, plus ML bias centered on the model's base rate")
     print("   - Confidence: abs(signal_strength) / 40 (0-1, higher = stronger signal)")
-    print("   - Market Regime: BULL/BEAR/NEUTRAL based on SPY MA200 and VIX")
-    print("   - Final Rec: Based on signal spread adjusted for market regime")
+    print("   - Market Regime: BULL/BEAR/NEUTRAL based on SPY MA200 and VIX (informational)")
+    print("   - Final Rec: Based on signal spread")
     print("   - Position Sizing: Gradual scaling with portfolio weight caps (max 10% per position)")
     print("⚠️ IMPORTANT: 60-day trading restrictions apply to all recommendations")
     print("   - Cannot buy and sell at higher price within 60 days")
@@ -482,6 +359,8 @@ def analyze_portfolio(csv_path, analysis_months=None):
         market_regime = "NEUTRAL"
         print(f"Market Regime: NEUTRAL (error: {e})")
     
+    context = fetch_signal_context()
+
     # Store results
     results = []
     daily_scores = {}
@@ -497,10 +376,12 @@ def analyze_portfolio(csv_path, analysis_months=None):
         try:
             import yfinance as yf
             ticker = yf.Ticker(symbol)
-            days = (end_date - start_date).days
-            period = f"{days}d" if days > 0 else "2mo"
             time.sleep(0.3)  # Delay to avoid rate limiting
-            hist = ticker.history(period=period)
+            hist_full = ticker.history(period=f"{config.HISTORY_DAYS}d")
+            analysis_start = pd.Timestamp(start_date)
+            if hist_full.index.tz is not None:
+                analysis_start = analysis_start.tz_localize(hist_full.index.tz)
+            hist = hist_full[hist_full.index >= analysis_start]
             
             if hist.empty:
                 print(f"  No data found for {symbol}")
@@ -531,7 +412,7 @@ def analyze_portfolio(csv_path, analysis_months=None):
                     current_price = prices.iloc[i]
                     
                     # Portfolio-based sizing: 5% of portfolio value
-                    position_size = int((sv * 0.05) / current_price)
+                    position_size = int((100000 * 0.05) / current_price)
                     
                     if rsi_val < 30 and curr < position_size:  # Oversold = BUY
                         trades.iloc[i] = position_size - curr
@@ -599,9 +480,14 @@ def analyze_portfolio(csv_path, analysis_months=None):
             else:
                 rf_return = None
             
-            # Calculate daily scores
-            sell_scores = calculate_daily_sell_scores(prices)
-            buy_scores = calculate_daily_buy_scores(prices)
+            # Calculate daily scores with the composite signal engine (needs >200 days of history)
+            signal_frame = compute_signal_scores(compute_indicator_frame(hist_full, **context))
+            analysis_signals = signal_frame.loc[prices.index].dropna(subset=['Composite'])
+            buy_scores = analysis_signals['Composite'] if not analysis_signals.empty else None
+            sell_scores = 100 - buy_scores if buy_scores is not None else None
+            reasons = describe_signal(analysis_signals.iloc[-1]) if not analysis_signals.empty else []
+            if reasons:
+                print(f"  Signal drivers: {', '.join(reasons)}")
             
             if sell_scores is not None:
                 daily_scores[symbol] = sell_scores
@@ -629,6 +515,8 @@ def analyze_portfolio(csv_path, analysis_months=None):
                 'RandomForest': rf_return,
                 'CurrentSellScore': current_sell_score,
                 'CurrentBuyScore': current_buy_score,
+                'TargetExposure': analysis_signals['TargetExposure'].iloc[-1] if not analysis_signals.empty else None,
+                'SignalDrivers': ', '.join(reasons),
                 'MarketValue': row['MarketValue']
             })
             

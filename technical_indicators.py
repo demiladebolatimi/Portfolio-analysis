@@ -115,3 +115,65 @@ def calculate_market_regime(spy_prices, window=20):
     spy_return_20d = (spy_prices / spy_prices.shift(window)) - 1
     spy_return_60d = (spy_prices / spy_prices.shift(60)) - 1
     return spy_return_20d, spy_return_60d
+
+
+def calculate_macd_histogram_pct(prices):
+    """MACD histogram as a percentage of price (comparable across tickers)."""
+    return calculate_macd_histogram(prices) / prices * 100
+
+
+def calculate_adx(high, low, close, window=14):
+    """Average Directional Index with +DI/-DI (Wilder smoothing)."""
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    true_range = pd.concat(
+        [high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1
+    ).max(axis=1)
+    alpha = 1 / window
+    atr = true_range.ewm(alpha=alpha, adjust=False).mean()
+    plus_di = 100 * plus_dm.ewm(alpha=alpha, adjust=False).mean() / atr
+    minus_di = 100 * minus_dm.ewm(alpha=alpha, adjust=False).mean() / atr
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    adx = dx.ewm(alpha=alpha, adjust=False).mean()
+    return adx, plus_di, minus_di
+
+
+def calculate_chaikin_money_flow(high, low, close, volume, window=20):
+    """Chaikin Money Flow (-1..1): volume-weighted buying vs selling pressure."""
+    clv = ((close - low) - (high - close)) / (high - low)
+    clv = clv.replace([np.inf, -np.inf], 0).fillna(0)
+    return (clv * volume).rolling(window).sum() / volume.rolling(window).sum()
+
+
+def calculate_obv_slope(prices, volume, window=20):
+    """OBV change over `window` days normalised by volume traded (-1..1)."""
+    obv = calculate_obv(prices, volume)
+    return obv.diff(window) / volume.rolling(window).sum()
+
+
+def calculate_momentum_12_1(prices, lookback=252, skip=21):
+    """12-month return excluding the most recent month (classic momentum factor)."""
+    return prices.shift(skip) / prices.shift(lookback) - 1
+
+
+def calculate_52w_high_proximity(prices, window=252):
+    """Price as a fraction of its trailing 52-week high (1.0 = at the high)."""
+    return prices / prices.rolling(window, min_periods=window // 2).max()
+
+
+def calculate_ma_slope(prices, ma_window=200, slope_window=20):
+    """Percentage change of the moving average over `slope_window` days."""
+    ma = prices.rolling(ma_window).mean()
+    return (ma / ma.shift(slope_window) - 1) * 100
+
+
+def calculate_realized_volatility(prices, window=20):
+    """Annualised realised volatility of daily returns."""
+    return prices.pct_change().rolling(window).std() * np.sqrt(252)
+
+
+def calculate_vix_term_structure(vix, vix3m):
+    """VIX / VIX3M ratio; values above 1 (backwardation) signal market stress."""
+    return vix / vix3m

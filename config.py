@@ -31,6 +31,21 @@ ATR_WINDOW = 14
 MA_WINDOWS = [50, 200]  # Moving Average windows
 BB_WINDOW = 20
 BB_STD = 2
+ADX_WINDOW = 14
+CMF_WINDOW = 20
+VOL_WINDOW = 60
+
+# Signal engine v2 (signal_engine.py)
+HISTORY_DAYS = 400  # Calendar days of history fetched so 200/252-day indicators are populated
+SIGNAL_WEIGHTS = {
+    'Trend': 0.40,
+    'RelativeStrength': 0.30,
+    'Volume': 0.10,
+    'Pullback': 0.10,      # buy-side only
+    'MarketStress': 0.10,  # buy-side only
+}
+TARGET_VOLATILITY = 0.40  # Annualised vol at which a position gets full size
+MIN_EXPOSURE = 0.25       # Never fully exit a core holding on signal alone
 
 # Trading thresholds
 BUY_SCORE_THRESHOLD = 55
