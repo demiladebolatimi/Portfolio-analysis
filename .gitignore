@@ -19,3 +19,5 @@ trading_restrictions.csv
 # IDE
 .vscode/
 .idea/
+.venv/
+data_cache/

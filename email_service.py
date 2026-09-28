@@ -328,7 +328,8 @@ def send_email_report(results_df, subject, force_send=False, market_regime="NEUT
                 <li>Buy & Hold: Passive portfolio performance</li>
                 <li>Benchmark: S&P 500 (SPY) performance</li>
                 <li>Manual Strategy: Rule-based trading performance</li>
-                <li>Q-Learner: ML-based strategy (Score >65 = SELL, Score <35 = BUY)</li>
+                <li>Q-Learner: ML-based strategy (probability centered on base rate; high = BUY, low = SELL)</li>
+                <li>Buy Score: composite of trend, relative strength, volume, pullback and VIX term structure</li>
                 <li>Random Forest: ML model (only if accuracy >55%)</li>
                 <li>Position Sizing: Based on signal spread (buy_score - sell_score) with portfolio weight caps</li>
                 <li>Confidence: Measures strength of buy/sell signal disagreement (0-1)</li>

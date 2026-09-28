@@ -18,6 +18,31 @@ from technical_indicators import (
 )
 
 
+def fetch_historical_vix(index, default=20.0):
+    """Daily VIX closes aligned to `index` (forward-filled), falling back to today's VIX or `default`."""
+    try:
+        import yfinance as yf
+        time.sleep(0.3)
+        vix = yf.Ticker("^VIX").history(start=index[0] - timedelta(days=10))['Close']
+        if not vix.empty:
+            vix.index = vix.index.tz_localize(None).normalize()
+            aligned = vix.reindex(pd.DatetimeIndex(index).tz_localize(None).normalize(), method='ffill')
+            return pd.Series(aligned.values, index=index).fillna(default)
+    except Exception as e:
+        print(f"  Could not fetch historical VIX: {e}")
+    current_vix = calculate_vix()
+    return pd.Series(current_vix if current_vix else default, index=index)
+
+
+def center_probabilities(probabilities, base_rate):
+    """Shift classifier probabilities so the training base rate maps to 0.5.
+
+    The target (>2% gain in 5 days) is positive only ~15-45% of the time, so raw
+    probabilities sit well below 0.5 and would otherwise read as a permanent SELL bias.
+    """
+    return np.clip(0.5 + np.asarray(probabilities) - base_rate, 0.0, 1.0)
+
+
 def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
     """Run Q-Learner Strategy on a symbol using yfinance data with score-based trading."""
     try:
@@ -87,11 +112,8 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
         train_spy_return_20d, train_spy_return_60d = calculate_market_regime(train_spy)
         
         # Get VIX for market sentiment
-        current_vix = calculate_vix()
-        if current_vix:
-            train_vix = pd.Series([current_vix] * len(train_prices), index=train_prices.index)
-        else:
-            train_vix = pd.Series([20] * len(train_prices), index=train_prices.index)  # Default VIX
+        vix_history = fetch_historical_vix(prices.index)
+        train_vix = vix_history.iloc[:split_point]
         
         # Create target variable: 1 if price goes up >2% over next 5 days, 0 otherwise
         # Changed from next-day direction to 5-day forward return with threshold
@@ -118,7 +140,8 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
             'VIX': train_vix
         })
         
-        # Remove NaN values
+        # Remove NaN/inf values
+        train_features = train_features.replace([np.inf, -np.inf], np.nan)
         valid_indices = ~(train_features.isna().any(axis=1) | train_target.isna())
         train_features = train_features[valid_indices]
         train_target = train_target[valid_indices]
@@ -166,7 +189,7 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
         test_spy_return_20d, test_spy_return_60d = calculate_market_regime(test_spy)
         
         # Use same VIX for test data
-        test_vix = pd.Series([current_vix if current_vix else 20] * len(test_prices), index=test_prices.index)
+        test_vix = vix_history.iloc[split_point:]
         
         test_features = pd.DataFrame({
             'RSI': test_rsi,
@@ -189,12 +212,12 @@ def run_qlearner_strategy(symbol, start_date, end_date, sv=100000):
         
         # Make predictions (probability of price going up)
         # Clean test data before prediction
-        test_features_clean = test_features.dropna()
+        test_features_clean = test_features.replace([np.inf, -np.inf], np.nan).dropna()
         if len(test_features_clean) == 0:
             print(f"  No valid test features for {symbol}")
             return None
         
-        predictions = model.predict_proba(test_features_clean)[:, 1]
+        predictions = center_probabilities(model.predict_proba(test_features_clean)[:, 1], train_target.mean())
         
         # Convert predictions to 0-100 score
         scores = predictions * 100
@@ -323,11 +346,8 @@ def run_randomforest_strategy(symbol, start_date, end_date, sv=100000):
         train_spy_return_20d, train_spy_return_60d = calculate_market_regime(train_spy)
         
         # Get VIX for market sentiment
-        current_vix = calculate_vix()
-        if current_vix:
-            train_vix = pd.Series([current_vix] * len(train_prices), index=train_prices.index)
-        else:
-            train_vix = pd.Series([20] * len(train_prices), index=train_prices.index)  # Default VIX
+        vix_history = fetch_historical_vix(prices.index)
+        train_vix = vix_history.iloc[:split_point]
         
         # Create target variable: 1 if price goes up >2% over next 5 days, 0 otherwise
         # Changed from next-day direction to 5-day forward return with threshold
@@ -354,7 +374,8 @@ def run_randomforest_strategy(symbol, start_date, end_date, sv=100000):
             'VIX': train_vix
         })
         
-        # Remove NaN values
+        # Remove NaN/inf values
+        train_features = train_features.replace([np.inf, -np.inf], np.nan)
         valid_indices = ~(train_features.isna().any(axis=1) | train_target.isna())
         train_features = train_features[valid_indices]
         train_target = train_target[valid_indices]
@@ -405,7 +426,7 @@ def run_randomforest_strategy(symbol, start_date, end_date, sv=100000):
         test_spy_return_20d, test_spy_return_60d = calculate_market_regime(test_spy)
         
         # Use same VIX for test data
-        test_vix = pd.Series([current_vix if current_vix else 20] * len(test_prices), index=test_prices.index)
+        test_vix = vix_history.iloc[split_point:]
         
         test_features = pd.DataFrame({
             'RSI': test_rsi,
@@ -427,12 +448,12 @@ def run_randomforest_strategy(symbol, start_date, end_date, sv=100000):
         })
         
         # Make predictions with cleaned test data
-        test_features_clean = test_features.dropna()
+        test_features_clean = test_features.replace([np.inf, -np.inf], np.nan).dropna()
         if len(test_features_clean) == 0:
             print(f"  No valid test features for {symbol}")
             return None, None, None
         
-        predictions = model.predict_proba(test_features_clean)[:, 1]
+        predictions = center_probabilities(model.predict_proba(test_features_clean)[:, 1], train_target.mean())
         
         # Generate trades based on predictions with portfolio-based sizing
         trades = pd.DataFrame(index=test_prices.index, columns=["Trades"])
